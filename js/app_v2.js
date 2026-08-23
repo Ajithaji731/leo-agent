@@ -1,6 +1,6 @@
 // Configuration
-const INVEST_GAS_URL = 'https://script.google.com/macros/s/AKfycbyMTtjbg64KV2Y8PWdKE4zaqhKI7nFffQcH1g2_pSzKWy3-12e0YQZuzziD6LcoEEnZ/exec';
-const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbw2IXa-8bfC5_wSYR-4n2UXdmsfFGNDa7NixMC8OmT-IRETnDbqPhPJkDQ0cI9_HLoHhQ/exec';
+const INVEST_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQOlfq4Dkroh35JjxKUrTrDsaNRVLE3YNmSsGoaufPlYt2yrXOSWxxex3g1HFhXcw3/exec';
+const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbytKmR80DlnQ6TtIQVv5wTJQkMITll-rNtYWbd70tDUT9luYCAzcN7kEZR7n_DLy2zj7Q/exec';
 const SECURE_ID = '2108'; // Hardcoded as requested
 
 // Global State
@@ -85,7 +85,7 @@ clearHistoryBtn.addEventListener('click', () => {
 async function loadChatHistory() {
   let payload, response, data, part;
   try {
-    const res = await fetch(HABIT_GAS_URL, {
+    const res = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
       method: 'POST',
       body: JSON.stringify({ action: 'getChat', userId: SECURE_ID })
     });
@@ -94,7 +94,7 @@ async function loadChatHistory() {
       chatHistory = data.messages;
       chatContainer.innerHTML = ''; // Clear default greeting
       chatHistory.forEach(msg => {
-        if (msg.role !== 'system') { // Don't show system prompts
+        if (msg.role !== 'system' && !(msg.content && msg.content.startsWith('SYSTEM DEBUG:'))) { // Don't show system prompts
           appendMessage(msg.role === 'model' ? 'ai' : 'user', msg.content, false);
         }
       });
@@ -108,7 +108,7 @@ async function loadChatHistory() {
 async function saveChatHistory() {
   let payload, response, data, part;
   try {
-    fetch(HABIT_GAS_URL, {
+    fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
       method: 'POST',
       body: JSON.stringify({ action: 'saveChat', userId: SECURE_ID, messages: chatHistory })
     });
@@ -187,18 +187,59 @@ const groqTools = [
       }
     }
   }
+,
+  {
+    type: "function",
+    function: {
+      name: "get_investments",
+      description: "Get the user's current investment portfolio totals.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_habits",
+      description: "Get the user's habit tracker history.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
+  }
 ];
 
 async function executeToolCall(call) {
-  let payload, response, data, part;
   try {
-    if (call.name === "update_habit") {
+    if (call.name === "get_investments") {
+      const getRes = await fetch(INVEST_GAS_URL + "?userId=" + SECURE_ID, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'getInvestments', userId: SECURE_ID })
+      });
+      return await getRes.text(); // Return raw string for LLM
+    }
+    else if (call.name === "get_habits") {
+      const getRes = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'getHabits', userId: SECURE_ID })
+      });
+      return await getRes.text();
+    }
+    else if (call.name === "update_habit") {
       const { habit_id } = call.args;
       const today = new Date().toISOString().split('T')[0];
       const targetDate = call.args.date || today;
       
-      const getRes = await fetch(HABIT_GAS_URL, {
+      const getRes = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
         method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'getHabits', userId: SECURE_ID })
       });
       let habits = await getRes.json();
@@ -227,7 +268,7 @@ async function executeToolCall(call) {
       }
       
       const payload = { userId: SECURE_ID, habits: habits };
-      const res = await fetch(HABIT_GAS_URL, { 
+      const res = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, { 
         method: "POST", 
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload) 
@@ -242,7 +283,11 @@ async function executeToolCall(call) {
       const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
       
       // We need to fetch current invested amount first, then add to it
-      const getRes = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
+      const getRes = await fetch(INVEST_GAS_URL + "?userId=" + SECURE_ID, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'getInvestments', userId: SECURE_ID })
+      });
       const getData = await getRes.json();
       
       let currentInvested = 0;
@@ -264,7 +309,7 @@ async function executeToolCall(call) {
         }
       };
       
-      const res = await fetch(INVEST_GAS_URL, { 
+      const res = await fetch(INVEST_GAS_URL + "?userId=" + SECURE_ID, { 
         method: "POST", 
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload) 
@@ -302,6 +347,7 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
     })
   ];
 
+
   let payload = {
     model: "openai/gpt-oss-120b",
     messages: messages,
@@ -309,7 +355,13 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
     temperature: 0.2,
     max_tokens: 200
   };
-
+  
+  // Clean up any undefined content just in case
+  payload.messages.forEach(m => {
+    if (m.role === 'user' && !m.content) m.content = " ";
+    if (m.role === 'assistant' && !m.content && !m.tool_calls) m.content = " ";
+  });
+  
   try {
     const response = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
       method: 'POST',
@@ -344,19 +396,66 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
         };
         
         recentHistory.push({ role: 'functionCall', call: call });
-        executeToolCall(call);
+        chatHistory.push({ role: 'functionCall', call: call });
+        
+        // Execute tool and wait for result
+        const toolResult = await executeToolCall(call);
+        let resultStr = "Success";
+        if (typeof toolResult === 'string') resultStr = toolResult;
+        
+
+
+        
+        recentHistory.push({ role: 'functionResponse', name: call.name, response: resultStr });
+        chatHistory.push({ role: 'functionResponse', name: call.name, response: resultStr });
         
         if (call.name === "update_habit") {
           const action = call.args.action || 'check';
           const targetDate = call.args.date || new Date().toISOString().split('T')[0];
-          if (action === 'uncheck') {
-            responses.push(`Unmarked **${call.args.habit_id}** for ${targetDate}. ⏪`);
-          } else {
-            responses.push(`Marked **${call.args.habit_id}** complete for ${targetDate}! ☀️`);
-          }
+          responses.push(action === 'uncheck' ? `Unmarked **${call.args.habit_id}** for ${targetDate}. ⏪` : `Marked **${call.args.habit_id}** for ${targetDate}! ☀️`);
         } else if (call.name === "add_investment") {
-          responses.push(`Logged investment of **₹${call.args.amount}** to **${call.args.asset_id}**! 📈`);
+          responses.push(`Logged **₹${call.args.amount}** to **${call.args.asset_id}**! 📈`);
         }
+      }
+      
+      // If we just read data, we MUST ask the LLM to summarize it instead of hardcoding a response
+      const justReadData = message.tool_calls.some(tc => tc.function.name.startsWith('get_'));
+      if (justReadData) {
+         // Recursive call so the LLM reads the new history containing the tool response!
+         // Note: we don't call sendToGroq directly because it pushes 'Please summarize' to chatHistory.
+         // Instead, we just loop by calling the API again with the updated chatHistory.
+         let newHistory = chatHistory.slice(-10);
+         const messages2 = [
+           { role: "system", content: systemPrompt },
+           ...newHistory.map(msg => {
+              if (msg.role === 'model') return { role: 'assistant', content: msg.content || " " };
+              if (msg.role === 'functionCall') return { role: 'assistant', content: "", tool_calls: [{ id: "call_id", type: "function", function: { name: msg.call.name, arguments: JSON.stringify(msg.call.args) } }] };
+              if (msg.role === 'functionResponse') return { role: 'tool', tool_call_id: "call_id", name: msg.name, content: msg.response };
+              return { role: 'user', content: msg.content || " " };
+           })
+         ];
+         messages2.push({ role: 'system', content: 'The tool has returned the raw JSON data. Read it and answer the user\'s question naturally. If the JSON is empty {}, tell them they have no data logged yet.'});
+
+         let payload2 = {
+           model: "openai/gpt-oss-120b",
+           messages: messages2,
+           tools: groqTools,
+           temperature: 0.2,
+           max_tokens: 200
+         };
+         try {
+           
+           const response2 = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqApiKey}` },
+             body: JSON.stringify(payload2)
+           });
+           const data2 = await response2.json();
+           if (data2.error) return "API Error: " + data2.error.message;
+           return data2.choices[0].message.content || "Okay, done!";
+         } catch(e) {
+           return "Sorry, encountered an error parsing the data.";
+         }
       }
       
       if (responses.length > 0) {
