@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AI Agent">
+  <title>Leo - Personal AI Agent</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+  <!-- Chat Screen -->
+  <div id="chatScreen" class="chat-screen">
+    <header class="glass-panel">
+      <div class="header-content">
+        <div class="logo">
+          <i data-lucide="bot" class="icon-primary"></i>
+          <h1>AI Agent</h1>
+        </div>
+        <button id="clearHistoryBtn" class="icon-btn" aria-label="Clear History" title="Clear Chat History">
+          <i data-lucide="trash-2"></i>
+        </button>
+      </div>
+    </header>
+
+    <div id="chatContainer" class="chat-container">
+      <!-- Chat messages will be injected here -->
+      <div class="message ai-message">
+        <div class="message-content glass-panel">
+          Hello Ajith! I am your personal AI Agent. I can help you track your habits and log your investments. What did you do today?
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area glass-panel">
+      <form id="chatForm">
+        <input type="text" id="chatInput" placeholder="Message Leo..." autocomplete="off">
+        <button type="submit" id="sendBtn" class="icon-btn primary-btn" aria-label="Send">
+          <i data-lucide="send"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast hidden">
+    <i data-lucide="check-circle" class="toast-icon"></i>
+    <span id="toastMsg">Success</span>
+  </div>
+
+  <script src="js/app_v2.js"></script>
+</body>
+</html>

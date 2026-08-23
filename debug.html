@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwTLJ5PSqaSlghakcqWW7s5-0GhBrC9KhUl5cUMfmwkkphNEiarrbEWYglYnnOcCXzo2w/exec';
+const SECURE_ID = '2108';
+
+async function runTest() {
+    try {
+        const url = `${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`;
+        console.log("Fetching:", url);
+        const res = await fetch(url);
+        const text = await res.text();
+        console.log("Raw Response:", text);
+        
+        let habits = JSON.parse(text);
+        console.log("Parsed habits:", habits);
+        console.log("Is Array?", Array.isArray(habits));
+        
+        document.body.innerHTML = "<h1>Check Console</h1><pre>" + text + "</pre>";
+    } catch(e) {
+        console.error(e);
+        document.body.innerHTML = "<h1>Error</h1><pre>" + e.toString() + "</pre>";
+    }
+}
+runTest();
+</script>
+</body>
+</html>
