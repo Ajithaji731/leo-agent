@@ -396,7 +396,30 @@ chatForm.addEventListener('submit', async (e) => {
   saveChatHistory();
 });
 
+
+// --- Theme Selector ---
+const themeSelector = document.getElementById('theme-selector');
+const savedTheme = localStorage.getItem('leo_theme') || 'default';
+
+function applyTheme(theme) {
+  document.body.classList.remove('theme-light', 'theme-alt-dark');
+  if (theme !== 'default') {
+    document.body.classList.add(`theme-${theme}`);
+  }
+  localStorage.setItem('leo_theme', theme);
+  if (themeSelector) themeSelector.value = theme;
+}
+
+applyTheme(savedTheme);
+
+if (themeSelector) {
+  themeSelector.addEventListener('change', (e) => {
+    applyTheme(e.target.value);
+  });
+}
+
 // Initialization
+
 window.addEventListener('DOMContentLoaded', async () => {
   
   await loadChatHistory();

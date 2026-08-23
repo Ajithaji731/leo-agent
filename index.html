@@ -19,12 +19,20 @@
     <header class="glass-panel">
       <div class="header-content">
         <div class="logo">
-          <i data-lucide="bot" class="icon-primary"></i>
-          <h1>AI Agent</h1>
+          <span style="font-size: 1.5rem;">🦁</span>
+          <h1>Leo</h1>
         </div>
-        <button id="clearHistoryBtn" class="icon-btn" aria-label="Clear History" title="Clear Chat History">
-          <i data-lucide="trash-2"></i>
-        </button>
+        
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <select id="theme-selector" style="background: rgba(255,255,255,0.1); color: inherit; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 4px 8px; font-family: inherit; font-size: 0.85rem; outline: none; cursor: pointer;">
+            <option value="default" style="background: #111827;">Default Dark</option>
+            <option value="alt-dark" style="background: #000;">OLED Dark</option>
+            <option value="light" style="background: #fff; color: #000;">Light Theme</option>
+          </select>
+          <button id="clearHistoryBtn" class="icon-btn" aria-label="Clear History" title="Clear Chat History">
+            <i data-lucide="trash-2"></i>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -32,7 +40,7 @@
       <!-- Chat messages will be injected here -->
       <div class="message ai-message">
         <div class="message-content glass-panel">
-          Hello Ajith! I am your personal AI Agent. I can help you track your habits and log your investments. What did you do today?
+          Hi Ajith! Leo here. 🦁 I can help you track your habits and log your investments. What did you do today?
         </div>
       </div>
     </div>
