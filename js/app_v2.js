@@ -1,10 +1,9 @@
 // Configuration
 const INVEST_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQOlfq4Dkroh35JjxKUrTrDsaNRVLE3YNmSsGoaufPlYt2yrXOSWxxex3g1HFhXcw3/exec';
-const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbytKmR80DlnQ6TtIQVv5wTJQkMITll-rNtYWbd70tDUT9luYCAzcN7kEZR7n_DLy2zj7Q/exec';
+const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwsawPKIh-cdc3pE_S1eybL0CYimovUhC3N5JEQrojXt4XPOuFJHt4JJvyMnnQROWQR/exec';
 const SECURE_ID = '2108'; // Hardcoded as requested
 
 // Global State
-const geminiApiKey = 'AQ.Ab8RN6LYcyJ7z-qM2Mhz4fmeY02IOvHQ3vE1v5z97mpyfSO5Lw';
 let chatHistory = [];
 
 // DOM Elements
@@ -326,8 +325,6 @@ async function executeToolCall(call) {
 // --- Gemini API (LLM Integration) ---
 
 async function sendToGroq(userMessage) {
-  const groqApiKey = "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";
-
   chatHistory.push({ role: 'user', content: userMessage });
   let recentHistory = chatHistory.slice(-10);
   
@@ -347,7 +344,6 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
     })
   ];
 
-
   let payload = {
     model: "openai/gpt-oss-120b",
     messages: messages,
@@ -363,19 +359,20 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
   });
   
   try {
-    const response = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
+    const response = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
       method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json', 
-        'Authorization': `Bearer ${groqApiKey}` 
-      },
-      body: JSON.stringify(payload)
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'chatWithGroq',
+        userId: SECURE_ID,
+        payload: payload
+      })
     });
     
     const data = await response.json();
     
     if (data.error) {
-       return "API Error: " + data.error.message;
+       return "API Error: " + (typeof data.error === 'object' ? JSON.stringify(data.error) : data.error);
     }
     
     const message = data.choices[0].message;
@@ -403,9 +400,6 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
         let resultStr = "Success";
         if (typeof toolResult === 'string') resultStr = toolResult;
         
-
-
-        
         recentHistory.push({ role: 'functionResponse', name: call.name, response: resultStr });
         chatHistory.push({ role: 'functionResponse', name: call.name, response: resultStr });
         
@@ -418,12 +412,9 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
         }
       }
       
-      // If we just read data, we MUST ask the LLM to summarize it instead of hardcoding a response
+      // If we just read data, ask the LLM to summarize it
       const justReadData = message.tool_calls.some(tc => tc.function.name.startsWith('get_'));
       if (justReadData) {
-         // Recursive call so the LLM reads the new history containing the tool response!
-         // Note: we don't call sendToGroq directly because it pushes 'Please summarize' to chatHistory.
-         // Instead, we just loop by calling the API again with the updated chatHistory.
          let newHistory = chatHistory.slice(-10);
          const messages2 = [
            { role: "system", content: systemPrompt },
@@ -444,14 +435,17 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
            max_tokens: 200
          };
          try {
-           
-           const response2 = await fetch(`https://api.groq.com/openai/v1/chat/completions`, {
+           const response2 = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
              method: 'POST',
-             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqApiKey}` },
-             body: JSON.stringify(payload2)
+             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+             body: JSON.stringify({
+               action: 'chatWithGroq',
+               userId: SECURE_ID,
+               payload: payload2
+             })
            });
            const data2 = await response2.json();
-           if (data2.error) return "API Error: " + data2.error.message;
+           if (data2.error) return "API Error: " + (typeof data2.error === 'object' ? JSON.stringify(data2.error) : data2.error);
            return data2.choices[0].message.content || "Okay, done!";
          } catch(e) {
            return "Sorry, encountered an error parsing the data.";
@@ -459,7 +453,7 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
       }
       
       if (responses.length > 0) {
-         return responses.join('\n');
+         return responses.join("\n");
       }
     }
     
