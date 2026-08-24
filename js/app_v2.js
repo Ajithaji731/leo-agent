@@ -225,6 +225,47 @@ function matchAsset(assetsList, identifier) {
   return assetsList.find(a => a.name.toLowerCase().includes(identifier.toLowerCase()) || identifier.toLowerCase().includes(a.name.toLowerCase()));
 }
 
+function matchHabit(habitsList, identifier) {
+  if (!identifier || !Array.isArray(habitsList)) return null;
+  const clean = identifier.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+  
+  // Exact ID
+  let match = habitsList.find(h => h.id && h.id.toLowerCase() === identifier.toLowerCase().trim());
+  if (match) return match;
+  
+  // Exact name or clean match
+  match = habitsList.find(h => h.name && (h.name.toLowerCase() === identifier.toLowerCase().trim() || h.name.toLowerCase().replace(/[^a-z0-9]/g, '') === clean));
+  if (match) return match;
+  
+  // Alias dictionary
+  const aliases = {
+    'sre': 'SRE',
+    'workout': 'Workout',
+    'gym': 'Workout',
+    'exercise': 'Workout',
+    'sun': 'Sun',
+    'sunlight': 'Sun',
+    'consistency': 'Consistency',
+    'math': 'Maths',
+    'maths': 'Maths',
+    'mathematics': 'Maths',
+    'iq': 'IQ',
+    'fingernail': 'Finger nail',
+    'fingernails': 'Finger nail',
+    'nail': 'Finger nail',
+    'nails': 'Finger nail'
+  };
+  
+  if (aliases[clean]) {
+    const targetName = aliases[clean];
+    match = habitsList.find(h => h.name && h.name.toLowerCase() === targetName.toLowerCase());
+    if (match) return match;
+  }
+  
+  // Substring match
+  return habitsList.find(h => h.name && (h.name.toLowerCase().includes(identifier.toLowerCase().trim()) || identifier.toLowerCase().trim().includes(h.name.toLowerCase())));
+}
+
 // Normalize month string e.g. "september", "sept", "2026-09" -> "2026-09"
 function normalizeMonth(monthInput) {
   if (!monthInput) {
@@ -322,8 +363,8 @@ const groqTools = [
             description: "The date to update in YYYY-MM-DD format. Defaults to today if not provided."
           },
           action: {
-            anyOf: [{ type: "string" }, { type: "null" }],
-            description: "The action to perform: 'check' to mark as complete, 'uncheck' to mark as incomplete. Defaults to 'check'."
+            anyOf: [{ type: "string", enum: ["check", "uncheck"] }, { type: "null" }],
+            description: "The action to perform: 'uncheck' when user asks to unmark, undo, or remove habit completion; 'check' when user did/completed a habit. Defaults to 'check'."
           }
         },
         required: []
@@ -499,13 +540,13 @@ async function executeToolCall(call) {
       
       let updatedNames = [];
       for (const hId of habitListToUpdate) {
-        let foundHabit = habits.find(h => 
-          (h.name && h.name.toLowerCase() === hId.toLowerCase()) || 
-          (h.id && h.id.toLowerCase() === hId.toLowerCase())
-        );
+        let foundHabit = matchHabit(habits, hId);
         
         if (!foundHabit) {
-          foundHabit = { id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : hId, name: hId, completedDates: [] };
+          const newId = (typeof crypto !== 'undefined' && crypto.randomUUID) 
+            ? crypto.randomUUID() 
+            : (Date.now().toString(36) + Math.random().toString(36).substring(2));
+          foundHabit = { id: newId, name: hId.trim(), completedDates: [] };
           habits.push(foundHabit);
         }
         if (!Array.isArray(foundHabit.completedDates)) {
@@ -536,7 +577,10 @@ async function executeToolCall(call) {
         body: JSON.stringify(payload) 
       });
       const data = await res.json();
-      showToast("Habits Synced to Google Sheets!"); 
+      if (data && data.error) {
+        return { status: "error", message: data.error };
+      }
+      showToast("Habits Synced to Habit Tracker!"); 
       return { status: "success", result: `Updated: ${updatedNames.join(', ')}` };
     } 
     else if (call.name === "manage_investments" || call.name === "add_investment") {
@@ -625,14 +669,16 @@ async function executeToolCall(call) {
 
 async function sendToGroq(userMessage) {
   chatHistory.push({ role: 'user', content: userMessage });
-  let recentHistory = chatHistory.slice(-6);
+  let recentHistory = chatHistory.filter(m => m.role === 'user' || m.role === 'model').slice(-6);
   
   const systemPrompt = `You are Ajith's personal AI agent (Leo). Today's date is ${new Date().toISOString().split('T')[0]}.
 You manage his Habit Tracker and Investment Portfolio.
 
 Habits:
-- Common habits: Workout, SRE, Sun, Consistency, Maths, IQ, Finger nail, or any new habit.
-- When user marks or unmarks one or multiple habits (e.g. "Unmark SRE, Workout and Sun"), call 'update_habit' with habit_ids: ["SRE", "Workout", "Sun"].
+- Common habits: Workout, SRE, Sun, Consistency, Maths, IQ, Finger nail, language, or any habit.
+- Marking complete: When user did/completed a habit (e.g. "did language", "mark SRE done today"), call 'update_habit' with action: 'check' and habit_ids.
+- Unmarking: When user says "unmark", "undo", "uncheck", "didn't do", "remove" (e.g. "Unmark language for today", "undo workout"), you MUST call 'update_habit' with action: 'uncheck' and habit_ids.
+- When multiple habits are mentioned in one message, always include all of them in the 'habit_ids' array.
 
 Investments & Portfolio:
 - When user asks how much funds they have, emergency fund balance, goals, car fund, or monthly totals: call 'get_investments'.
@@ -648,12 +694,10 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
 
   const messages = [
     { role: "system", content: systemPrompt },
-    ...recentHistory.map(msg => {
-       if (msg.role === 'model') return { role: 'assistant', content: msg.content };
-       if (msg.role === 'functionCall') return { role: 'assistant', content: null, tool_calls: [{ id: "call_id", type: "function", function: { name: msg.call.name, arguments: JSON.stringify(msg.call.args) } }] };
-       if (msg.role === 'functionResponse') return { role: 'tool', tool_call_id: "call_id", name: msg.name, content: msg.response };
-       return { role: 'user', content: msg.content };
-    })
+    ...recentHistory.map(msg => ({
+      role: msg.role === 'model' ? 'assistant' : 'user',
+      content: msg.content || " "
+    }))
   ];
 
   let payload = {
@@ -703,24 +747,28 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
           name: toolCall.function.name,
           args: parsedArgs
         };
-        
-        recentHistory.push({ role: 'functionCall', call: call });
-        chatHistory.push({ role: 'functionCall', call: call });
+
+        // Extra safeguard: if the user prompt explicitly requested unmarking, ensure action is 'uncheck'
+        if (call.name === "update_habit") {
+          const lowerPrompt = userMessage.toLowerCase();
+          if (/\b(unmark|uncheck|undo|remove|didn't|did not|not done)\b/.test(lowerPrompt)) {
+            call.args.action = 'uncheck';
+          }
+        }
         
         // Execute tool and wait for result
         const toolResult = await executeToolCall(call);
-        let resultStr = "Success";
-        if (typeof toolResult === 'string') resultStr = toolResult;
-        
-        recentHistory.push({ role: 'functionResponse', name: call.name, response: resultStr });
-        chatHistory.push({ role: 'functionResponse', name: call.name, response: resultStr });
         
         if (call.name === "update_habit") {
-          const action = call.args.action || 'check';
-          const targetDate = call.args.date || new Date().toISOString().split('T')[0];
-          let rawHabitIds = call.args.habit_ids || call.args.habit_id;
-          let names = Array.isArray(rawHabitIds) ? rawHabitIds.join(', ') : (rawHabitIds || 'Habit');
-          responses.push(action === 'uncheck' ? `Unmarked **${names}** for ${targetDate}. ⏪` : `Marked **${names}** for ${targetDate}! ☀️`);
+          if (toolResult && toolResult.status === "error") {
+            responses.push(`⚠️ Failed to update habit: ${toolResult.message || 'Unknown error'}`);
+          } else {
+            const action = call.args.action || 'check';
+            const targetDate = call.args.date || new Date().toISOString().split('T')[0];
+            let rawHabitIds = call.args.habit_ids || call.args.habit_id;
+            let names = Array.isArray(rawHabitIds) ? rawHabitIds.join(', ') : (rawHabitIds || 'Habit');
+            responses.push(action === 'uncheck' ? `Unmarked **${names}** for ${targetDate}. ⏪` : `Marked **${names}** for ${targetDate}! ☀️`);
+          }
         } else if (call.name === "manage_investments" || call.name === "add_investment") {
           if (toolResult && toolResult.result) {
             responses.push(toolResult.result);
@@ -739,15 +787,13 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
       // If we just read data, ask the LLM to summarize it
       const justReadData = message.tool_calls.some(tc => tc.function.name.startsWith('get_'));
       if (justReadData) {
-         let newHistory = chatHistory.slice(-6);
+         let newHistory = chatHistory.filter(m => m.role === 'user' || m.role === 'model').slice(-6);
          const messages2 = [
            { role: "system", content: systemPrompt },
-           ...newHistory.map(msg => {
-              if (msg.role === 'model') return { role: 'assistant', content: msg.content || " " };
-              if (msg.role === 'functionCall') return { role: 'assistant', content: "", tool_calls: [{ id: "call_id", type: "function", function: { name: msg.call.name, arguments: JSON.stringify(msg.call.args) } }] };
-              if (msg.role === 'functionResponse') return { role: 'tool', tool_call_id: "call_id", name: msg.name, content: msg.response };
-              return { role: 'user', content: msg.content || " " };
-           })
+           ...newHistory.map(msg => ({
+              role: msg.role === 'model' ? 'assistant' : 'user',
+              content: msg.content || " "
+           }))
          ];
          messages2.push({ role: 'system', content: 'The tool has returned the raw JSON data. Read it and answer the user\'s question naturally. If the JSON is empty {}, tell them they have no data logged yet.'});
 
