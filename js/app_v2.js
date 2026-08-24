@@ -1,5 +1,5 @@
 // Configuration
-const INVEST_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQOlfq4Dkroh35JjxKUrTrDsaNRVLE3YNmSsGoaufPlYt2yrXOSWxxex3g1HFhXcw3/exec';
+const INVEST_GAS_URL = 'https://script.google.com/macros/s/AKfycbz4XE756GYGMLMzMVl3e0SKk_65iK4tRUdbu4XvaolBWTiV15V1IdmMqKtM7X6Mmtr6/exec';
 const AI_CHAT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzGKwN7SseLOsaQeOnql_3cmMqaM4u7gJdcoIXsCbhn104CqpaECzwV9U6PwidLas0y/exec';
 const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwTLJ5PSqaSlghakcqWW7s5-0GhBrC9KhUl5cUMfmwkkphNEiarrbEWYglYnnOcCXzo2w/exec';
 const SECURE_ID = '2108'; // Hardcoded as requested
