@@ -460,7 +460,7 @@ const groqTools = [
     type: "function",
     function: {
       name: "get_habits",
-      description: "Get the user's habit tracker history.",
+      description: "Get the user's list of habits and completion dates history. Call this whenever the user asks what habits they completed today, what is pending, what habits they have, or asks about their habit streak/status.",
       parameters: {
         type: "object",
         properties: {},
@@ -678,6 +678,7 @@ Habits:
 - Common habits: Workout, SRE, Sun, Consistency, Maths, IQ, Finger nail, language, or any habit.
 - Marking complete: When user did/completed a habit (e.g. "did language", "mark SRE done today"), call 'update_habit' with action: 'check' and habit_ids.
 - Unmarking: When user says "unmark", "undo", "uncheck", "didn't do", "remove" (e.g. "Unmark language for today", "undo workout"), you MUST call 'update_habit' with action: 'uncheck' and habit_ids.
+- Querying Habits: When user asks what habits they completed today, what is pending, what habits they have, or asks about their habit streak/status (e.g. "what all things I have done today ?", "what's pending?"): ALWAYS call 'get_habits'.
 - When multiple habits are mentioned in one message, always include all of them in the 'habit_ids' array.
 
 Investments & Portfolio:
@@ -735,6 +736,8 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
 
     if (message.tool_calls && message.tool_calls.length > 0) {
       let responses = [];
+      let readResults = [];
+      
       for (const toolCall of message.tool_calls) {
         let parsedArgs = {};
         try {
@@ -759,7 +762,10 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
         // Execute tool and wait for result
         const toolResult = await executeToolCall(call);
         
-        if (call.name === "update_habit") {
+        if (call.name.startsWith("get_")) {
+          let str = typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
+          readResults.push(`[${call.name}]:\n${str}`);
+        } else if (call.name === "update_habit") {
           if (toolResult && toolResult.status === "error") {
             responses.push(`⚠️ Failed to update habit: ${toolResult.message || 'Unknown error'}`);
           } else {
@@ -784,23 +790,24 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
         }
       }
       
-      // If we just read data, ask the LLM to summarize it
-      const justReadData = message.tool_calls.some(tc => tc.function.name.startsWith('get_'));
-      if (justReadData) {
+      // If we read data, pass the retrieved data to LLM to generate an intelligent natural language answer
+      if (readResults.length > 0) {
          let newHistory = chatHistory.filter(m => m.role === 'user' || m.role === 'model').slice(-6);
          const messages2 = [
            { role: "system", content: systemPrompt },
            ...newHistory.map(msg => ({
               role: msg.role === 'model' ? 'assistant' : 'user',
               content: msg.content || " "
-           }))
+           })),
+           { 
+             role: 'user', 
+             content: `Retrieved data from database:\n${readResults.join('\n\n')}\n\nToday's date is ${new Date().toISOString().split('T')[0]}. Please answer my question: "${userMessage}". Format clearly with bullet points.`
+           }
          ];
-         messages2.push({ role: 'system', content: 'The tool has returned the raw JSON data. Read it and answer the user\'s question naturally. If the JSON is empty {}, tell them they have no data logged yet.'});
 
          let payload2 = {
            model: "openai/gpt-oss-120b",
            messages: messages2,
-           tools: groqTools,
            temperature: 0.2,
            max_tokens: 1000
          };
@@ -816,7 +823,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
            });
            const data2 = await response2.json();
            if (data2.error) return "API Error: " + (typeof data2.error === 'object' ? JSON.stringify(data2.error) : data2.error);
-           return data2.choices[0].message.content || "Okay, done!";
+           return data2.choices[0].message.content || "I retrieved your data, but could not format a response.";
          } catch(e) {
            return "Sorry, encountered an error parsing the data.";
          }
@@ -827,7 +834,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
       }
     }
     
-    return message.content || "Okay, done!";
+    return message.content || "I'm here! How can I help you today?";
   } catch (e) {
     console.error(e);
     return "Sorry, I encountered an error connecting to the AI brain.";
