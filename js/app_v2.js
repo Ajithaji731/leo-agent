@@ -310,20 +310,19 @@ const groqTools = [
         type: "object",
         properties: {
           habit_ids: {
-            type: "array",
-            items: { type: "string" },
+            anyOf: [{ type: "array", items: { type: "string" } }, { type: "null" }],
             description: "List of habit names or IDs to update (e.g. ['SRE', 'Workout', 'Sun'])."
           },
           habit_id: {
-            type: "string",
+            anyOf: [{ type: "string" }, { type: "null" }],
             description: "Single habit name or ID to update (e.g. 'Workout')."
           },
           date: {
-            type: "string",
+            anyOf: [{ type: "string" }, { type: "null" }],
             description: "The date to update in YYYY-MM-DD format. Defaults to today if not provided."
           },
           action: {
-            type: "string",
+            anyOf: [{ type: "string" }, { type: "null" }],
             description: "The action to perform: 'check' to mark as complete, 'uncheck' to mark as incomplete. Defaults to 'check'."
           }
         },
@@ -340,37 +339,33 @@ const groqTools = [
         type: "object",
         properties: {
           month: {
-            type: "string",
+            anyOf: [{ type: "string" }, { type: "null" }],
             description: "The target month (e.g. '2026-09', 'September', 'Sep 2026'). Defaults to current month."
           },
           investments: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                asset_id: {
-                  type: "string",
-                  description: "Name or ID of the asset (e.g. 'Parag Parikh', 'Emergency Fund', 'Car Fund', 'ICICI N50', 'HDFC BANK', etc.)"
-                },
-                amount: {
-                  type: "number",
-                  description: "The amount invested or added"
-                },
-                mode: {
-                  type: "string",
-                  description: "'add' to add to existing amount (default), or 'set' to set absolute total"
+            anyOf: [
+              {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    asset_id: { type: "string" },
+                    amount: { type: "number" },
+                    mode: { anyOf: [{ type: "string" }, { type: "null" }] }
+                  },
+                  required: ["asset_id", "amount"]
                 }
               },
-              required: ["asset_id", "amount"]
-            },
+              { type: "null" }
+            ],
             description: "List of investments to add or update"
           },
           asset_id: {
-            type: "string",
+            anyOf: [{ type: "string" }, { type: "null" }],
             description: "Single asset name or ID (fallback if single investment)"
           },
           amount: {
-            type: "number",
+            anyOf: [{ type: "number" }, { type: "null" }],
             description: "Amount (fallback if single investment)"
           }
         },
@@ -391,7 +386,7 @@ const groqTools = [
             description: "The month to delete records for (e.g. '2026-09', 'September')."
           },
           asset_id: {
-            type: "string",
+            anyOf: [{ type: "string" }, { type: "null" }],
             description: "Optional. If specified, only removes this single asset from that month. If omitted, deletes the entire month record."
           }
         },
@@ -408,11 +403,11 @@ const groqTools = [
         type: "object",
         properties: {
           month: {
-            type: "string",
+            anyOf: [{ type: "string" }, { type: "null" }],
             description: "Optional specific month to inspect (e.g. '2026-08', 'August'). If omitted, returns latest overview."
           },
           category: {
-            type: "string",
+            anyOf: [{ type: "string" }, { type: "null" }],
             description: "Optional category filter (e.g. 'Mutual Funds', 'Goals', 'Emergency Fund', 'Stocks/ETFs', 'EPF', 'NPS')."
           }
         },
