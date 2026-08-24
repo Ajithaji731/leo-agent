@@ -1,6 +1,7 @@
 // Configuration
 const INVEST_GAS_URL = 'https://script.google.com/macros/s/AKfycbxQOlfq4Dkroh35JjxKUrTrDsaNRVLE3YNmSsGoaufPlYt2yrXOSWxxex3g1HFhXcw3/exec';
-const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwsawPKIh-cdc3pE_S1eybL0CYimovUhC3N5JEQrojXt4XPOuFJHt4JJvyMnnQROWQR/exec';
+const AI_CHAT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzGKwN7SseLOsaQeOnql_3cmMqaM4u7gJdcoIXsCbhn104CqpaECzwV9U6PwidLas0y/exec';
+const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwTLJ5PSqaSlghakcqWW7s5-0GhBrC9KhUl5cUMfmwkkphNEiarrbEWYglYnnOcCXzo2w/exec';
 const SECURE_ID = '2108'; // Hardcoded as requested
 
 // Global State
@@ -84,7 +85,7 @@ clearHistoryBtn.addEventListener('click', () => {
 async function loadChatHistory() {
   let payload, response, data, part;
   try {
-    const res = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
+    const res = await fetch(AI_CHAT_GAS_URL + "?userId=" + SECURE_ID, {
       method: 'POST',
       body: JSON.stringify({ action: 'getChat', userId: SECURE_ID })
     });
@@ -107,7 +108,7 @@ async function loadChatHistory() {
 async function saveChatHistory() {
   let payload, response, data, part;
   try {
-    fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
+    fetch(AI_CHAT_GAS_URL + "?userId=" + SECURE_ID, {
       method: 'POST',
       body: JSON.stringify({ action: 'saveChat', userId: SECURE_ID, messages: chatHistory })
     });
@@ -144,13 +145,18 @@ const groqTools = [
     type: "function",
     function: {
       name: "update_habit",
-      description: "Update the completion status of a habit for today.",
+      description: "Update the completion status of one or multiple habits for a given date.",
       parameters: {
         type: "object",
         properties: {
+          habit_ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "List of habit names or IDs to update (e.g. ['SRE', 'Workout', 'Sun'])."
+          },
           habit_id: {
             type: "string",
-            description: "The ID of the habit (e.g. 'sun', 'reading', 'workout', 'meditation')"
+            description: "Single habit name or ID to update (e.g. 'Workout')."
           },
           date: {
             type: "string",
@@ -161,7 +167,7 @@ const groqTools = [
             description: "The action to perform: 'check' to mark as complete, 'uncheck' to mark as incomplete. Defaults to 'check'."
           }
         },
-        required: ["habit_id"]
+        required: []
       }
     }
   },
@@ -224,56 +230,77 @@ async function executeToolCall(call) {
       return await getRes.text(); // Return raw string for LLM
     }
     else if (call.name === "get_habits") {
-      const getRes = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'getHabits', userId: SECURE_ID })
-      });
+      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
       return await getRes.text();
     }
     else if (call.name === "update_habit") {
-      const { habit_id } = call.args;
+      let rawHabitIds = call.args.habit_ids || call.args.habit_id;
+      let habitListToUpdate = [];
+      if (Array.isArray(rawHabitIds)) {
+        habitListToUpdate = rawHabitIds;
+      } else if (typeof rawHabitIds === 'string') {
+        habitListToUpdate = rawHabitIds.split(',').map(s => s.trim()).filter(Boolean);
+      }
+      
       const today = new Date().toISOString().split('T')[0];
       const targetDate = call.args.date || today;
-      
-      const getRes = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'getHabits', userId: SECURE_ID })
-      });
-      let habits = await getRes.json();
-      
-      if (!Array.isArray(habits)) {
-         habits = [];
-      }
-      
-      // Find the habit by name
-      let foundHabit = habits.find(h => h.name.toLowerCase() === habit_id.toLowerCase());
-      
-      // If habit doesn't exist, create it (we use a simple ID if needed)
-      if (!foundHabit) {
-        foundHabit = { id: crypto.randomUUID ? crypto.randomUUID() : habit_id, name: habit_id, completedDates: [] };
-        habits.push(foundHabit);
-      }
-      
-      // Add today if not already there
       const action = call.args.action || 'check';
-      if (action === 'check') {
-        if (!foundHabit.completedDates.includes(targetDate)) {
-          foundHabit.completedDates.push(targetDate);
-        }
-      } else if (action === 'uncheck') {
-        foundHabit.completedDates = foundHabit.completedDates.filter(d => d !== targetDate);
+      
+      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
+      let rawData = await getRes.json();
+      let habits = [];
+      let isObjectWrapper = false;
+      
+      if (Array.isArray(rawData)) {
+        habits = rawData;
+      } else if (rawData && Array.isArray(rawData.habits)) {
+        habits = rawData.habits;
+        isObjectWrapper = true;
+      } else if (rawData && typeof rawData === 'object' && Object.keys(rawData).length > 0) {
+        habits = Array.isArray(rawData.habits) ? rawData.habits : [];
       }
       
-      const payload = { userId: SECURE_ID, habits: habits };
+      let updatedNames = [];
+      for (const hId of habitListToUpdate) {
+        let foundHabit = habits.find(h => 
+          (h.name && h.name.toLowerCase() === hId.toLowerCase()) || 
+          (h.id && h.id.toLowerCase() === hId.toLowerCase())
+        );
+        
+        if (!foundHabit) {
+          foundHabit = { id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : hId, name: hId, completedDates: [] };
+          habits.push(foundHabit);
+        }
+        if (!Array.isArray(foundHabit.completedDates)) {
+          foundHabit.completedDates = [];
+        }
+        
+        if (action === 'check') {
+          if (!foundHabit.completedDates.includes(targetDate)) {
+            foundHabit.completedDates.push(targetDate);
+          }
+        } else if (action === 'uncheck') {
+          foundHabit.completedDates = foundHabit.completedDates.filter(d => d !== targetDate);
+        }
+        updatedNames.push(foundHabit.name || hId);
+      }
+      
+      const stateToSave = isObjectWrapper ? { ...rawData, habits: habits } : habits;
+      const payload = { 
+        userId: SECURE_ID, 
+        habits: habits,
+        action: "sync",
+        state: stateToSave
+      };
+      
       const res = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, { 
         method: "POST", 
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload) 
       });
       const data = await res.json();
-      showToast("Habit Synced to Google Sheets!"); showToast("Habit Synced to Google Sheets!"); return { status: "success", result: "Habit updated." };
+      showToast("Habits Synced to Google Sheets!"); 
+      return { status: "success", result: `Updated: ${updatedNames.join(', ')}` };
     } 
     else if (call.name === "add_investment") {
       const { asset_id, amount } = call.args;
@@ -317,7 +344,7 @@ async function executeToolCall(call) {
       showToast("Investment Synced to Google Sheets!"); return { status: "success", result: `Added ${amount}. New total for month: ${newInvested}` };
     }
   } catch (e) {
-    showToast("Sync Failed: " + e.toString()); showToast("Sync Failed: " + e.toString()); return { status: "error", message: e.toString() };
+    showToast("Sync Failed: " + e.toString()); return { status: "error", message: e.toString() };
   }
   return { status: "error", message: "Unknown function" };
 }
@@ -328,11 +355,14 @@ async function sendToGroq(userMessage) {
   chatHistory.push({ role: 'user', content: userMessage });
   let recentHistory = chatHistory.slice(-10);
   
-  const systemPrompt = `You are Ajith's personal AI agent. Today's date is ${new Date().toISOString().split('T')[0]}. You have tools to update his Habit Tracker and Investment Portfolio.
-If he asks to log an investment or habit, USE THE TOOLS PROVIDED. 
-Do not guess asset IDs. Common Asset IDs: 'st_hdfc', 'st_tata_cap', 'st_icici', 'mf_parag_parikh', 'goal_emergency_fund'.
-Common Habit IDs: 'sun', 'reading', 'workout', 'meditation'.
-If you successfully call a tool, confirm to the user what you just did. Keep responses very short and friendly.`;
+  const systemPrompt = `You are Ajith's personal AI agent (Leo). Today's date is ${new Date().toISOString().split('T')[0]}.
+You have tools to manage and update his Habit Tracker and Investment Portfolio.
+When the user mentions completing, doing, or unchecking habits:
+- If the user mentions ONE or MULTIPLE habits (e.g., "Unmark SRE, Workout and Sun", "I did maths and workout", "sun and workout also"):
+  ALWAYS call 'update_habit' and pass ALL the requested habits in the 'habit_ids' array (e.g. habit_ids: ["SRE", "Workout", "Sun"]).
+- Do NOT ignore any habit. Make sure every single habit mentioned is included.
+When logging an investment, use the 'add_investment' tool with the asset ID and amount.
+Always keep responses short, friendly, and confirm all habits that were updated.`;
 
   const messages = [
     { role: "system", content: systemPrompt },
@@ -359,7 +389,7 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
   });
   
   try {
-    const response = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
+    const response = await fetch(AI_CHAT_GAS_URL + "?userId=" + SECURE_ID, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
@@ -406,7 +436,9 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
         if (call.name === "update_habit") {
           const action = call.args.action || 'check';
           const targetDate = call.args.date || new Date().toISOString().split('T')[0];
-          responses.push(action === 'uncheck' ? `Unmarked **${call.args.habit_id}** for ${targetDate}. ⏪` : `Marked **${call.args.habit_id}** for ${targetDate}! ☀️`);
+          let rawHabitIds = call.args.habit_ids || call.args.habit_id;
+          let names = Array.isArray(rawHabitIds) ? rawHabitIds.join(', ') : (rawHabitIds || 'Habit');
+          responses.push(action === 'uncheck' ? `Unmarked **${names}** for ${targetDate}. ⏪` : `Marked **${names}** for ${targetDate}! ☀️`);
         } else if (call.name === "add_investment") {
           responses.push(`Logged **₹${call.args.amount}** to **${call.args.asset_id}**! 📈`);
         }
@@ -435,7 +467,7 @@ If you successfully call a tool, confirm to the user what you just did. Keep res
            max_tokens: 200
          };
          try {
-           const response2 = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, {
+           const response2 = await fetch(AI_CHAT_GAS_URL + "?userId=" + SECURE_ID, {
              method: 'POST',
              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
              body: JSON.stringify({
