@@ -635,7 +635,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
     messages: messages,
     tools: groqTools,
     temperature: 0.2,
-    max_tokens: 200
+    max_tokens: 1000
   };
   
   // Clean up any undefined content just in case
@@ -730,7 +730,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
            messages: messages2,
            tools: groqTools,
            temperature: 0.2,
-           max_tokens: 200
+           max_tokens: 1000
          };
          try {
            const response2 = await fetch(AI_CHAT_GAS_URL + "?userId=" + SECURE_ID, {
