@@ -79,6 +79,32 @@ header {
   color: var(--primary-color);
 }
 
+/* API Key Status Badge */
+.key-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 20px;
+  color: #10b981;
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.key-badge i {
+  width: 13px;
+  height: 13px;
+}
+
+@media (max-width: 500px) {
+  .key-badge span {
+    display: none;
+  }
+}
+
 /* Buttons */
 .icon-btn {
   background: none;

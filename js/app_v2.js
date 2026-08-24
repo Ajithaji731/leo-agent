@@ -117,15 +117,175 @@ async function saveChatHistory() {
   }
 }
 
+// --- Preloaded Invest Assets & Default Fallback ---
+const DEFAULT_INVEST_ASSETS = [
+  { id: 'st_tata_cap', name: 'TATA Capital', category: 'Stocks/ETFs', sector: 'Financial Services (NBFC)' },
+  { id: 'st_tatsilv', name: 'TATSILV', category: 'Stocks/ETFs', sector: 'Commodities - Silver' },
+  { id: 'st_goldietf', name: 'GOLDIETF', category: 'Stocks/ETFs', sector: 'Commodities - Gold' },
+  { id: 'st_hdfc', name: 'HDFC BANK', category: 'Stocks/ETFs', sector: 'Banking - Private Sector' },
+  { id: 'st_bpcl', name: 'BPCL', category: 'Stocks/ETFs', sector: 'Oil & Gas' },
+  { id: 'st_icici', name: 'ICICI BANK', category: 'Stocks/ETFs', sector: 'Banking - Private Sector' },
+  { id: 'st_metalietf', name: 'METALIETF', category: 'Stocks/ETFs', sector: 'Metals & Mining' },
+  { id: 'st_southbank', name: 'SOUTHBANK', category: 'Stocks/ETFs', sector: 'Banking - Private Sector' },
+  { id: 'st_nippon_it', name: 'Nippon India ETF IT', category: 'Stocks/ETFs', sector: 'Information Technology' },
+  { id: 'mf_parag_parikh', name: 'Parag parikh flexi cap fund - Direct', category: 'Mutual Funds', sector: 'Flexi Cap' },
+  { id: 'mf_icici_n50', name: 'ICICI Prudential Nifty 50 Index Fund - Direct', category: 'Mutual Funds', sector: 'Index Fund' },
+  { id: 'mf_bandhan_small', name: 'Bandhan Small Cap Fund - Direct', category: 'Mutual Funds', sector: 'Small Cap' },
+  { id: 'epf_balance', name: 'EPF Balance', category: 'EPF', sector: 'Retirement' },
+  { id: 'ppf_balance', name: 'PPF Balance', category: 'PPF', sector: 'Retirement' },
+  { id: 'nps_tier1', name: 'NPS Tier 1', category: 'NPS', sector: 'Retirement' },
+  { id: 'nps_tier2', name: 'NPS Tier 2', category: 'NPS', sector: 'Retirement' },
+  { id: 'goal_emergency_fund', name: 'Emergency Fund', category: 'Emergency Fund', sector: 'Emergency Savings' },
+  { id: 'goal_car_fund', name: 'Car Fund', category: 'Goals', sector: 'Car Purchase 2028' },
+  { id: 'goal_digi_gold', name: 'Digi Gold', category: 'Gold Investment', sector: 'Gold Investments' }
+];
+
+async function fetchInvestCloudState() {
+  try {
+    const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
+    const data = await res.json();
+    let stateObj = data.records ? data : (data.state && data.state.records ? data.state : null);
+    if (stateObj && stateObj.records && Object.keys(stateObj.records).length > 0) {
+      if (!stateObj.assets || stateObj.assets.length === 0) stateObj.assets = DEFAULT_INVEST_ASSETS;
+      return stateObj;
+    }
+  } catch (e) {
+    console.error("Failed to fetch cloud invest state, using defaults", e);
+  }
+  return {
+    assets: DEFAULT_INVEST_ASSETS,
+    records: {},
+    lastModified: Date.now()
+  };
+}
+
+async function saveInvestCloudState(stateObj) {
+  stateObj.lastModified = Date.now();
+  const payload = {
+    action: "sync",
+    userId: SECURE_ID,
+    state: stateObj
+  };
+  const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  });
+  return await res.json();
+}
+
+function matchAsset(assetsList, identifier) {
+  if (!identifier) return null;
+  const clean = identifier.toLowerCase().replace(/[^a-z0-9]/g, '');
+  // Exact ID
+  let match = assetsList.find(a => a.id.toLowerCase() === identifier.toLowerCase());
+  if (match) return match;
+  
+  // Exact name or clean match
+  match = assetsList.find(a => a.name.toLowerCase() === identifier.toLowerCase() || a.name.toLowerCase().replace(/[^a-z0-9]/g, '') === clean);
+  if (match) return match;
+  
+  // Partial / alias match
+  const aliases = {
+    'paragparikh': 'mf_parag_parikh',
+    'flexicap': 'mf_parag_parikh',
+    'icicin50': 'mf_icici_n50',
+    'nifty50': 'mf_icici_n50',
+    'bandhansmall': 'mf_bandhan_small',
+    'smallcap': 'mf_bandhan_small',
+    'emergencyfund': 'goal_emergency_fund',
+    'emergency': 'goal_emergency_fund',
+    'carfund': 'goal_car_fund',
+    'car': 'goal_car_fund',
+    'digigold': 'goal_digi_gold',
+    'goldietf': 'st_goldietf',
+    'gold': 'st_goldietf',
+    'tatsilv': 'st_tatsilv',
+    'silver': 'st_tatsilv',
+    'epf': 'epf_balance',
+    'ppf': 'ppf_balance',
+    'npstier1': 'nps_tier1',
+    'npstier2': 'nps_tier2',
+    'nps': 'nps_tier1',
+    'hdfc': 'st_hdfc',
+    'icicibank': 'st_icici',
+    'bpcl': 'st_bpcl',
+    'tatacapital': 'st_tata_cap',
+    'metalietf': 'st_metalietf',
+    'nipponit': 'st_nippon_it',
+    'southbank': 'st_southbank'
+  };
+  
+  for (const [k, targetId] of Object.entries(aliases)) {
+    if (clean.includes(k) || k.includes(clean)) {
+      return assetsList.find(a => a.id === targetId);
+    }
+  }
+  
+  return assetsList.find(a => a.name.toLowerCase().includes(identifier.toLowerCase()) || identifier.toLowerCase().includes(a.name.toLowerCase()));
+}
+
+// Normalize month string e.g. "september", "sept", "2026-09" -> "2026-09"
+function normalizeMonth(monthInput) {
+  if (!monthInput) {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const currentYear = new Date().getFullYear();
+  const input = monthInput.toLowerCase().trim();
+  
+  if (/^\d{4}-\d{2}$/.test(input)) return input;
+  
+  const months = {
+    'january': '01', 'jan': '01',
+    'february': '02', 'feb': '02',
+    'march': '03', 'mar': '03',
+    'april': '04', 'apr': '04',
+    'may': '05',
+    'june': '06', 'jun': '06',
+    'july': '07', 'jul': '07',
+    'august': '08', 'aug': '08',
+    'september': '09', 'sept': '09', 'sep': '09',
+    'october': '10', 'oct': '10',
+    'november': '11', 'nov': '11',
+    'december': '12', 'dec': '12'
+  };
+  
+  for (const [mName, mNum] of Object.entries(months)) {
+    if (input.includes(mName)) {
+      const yearMatch = input.match(/\b(20\d\d)\b/);
+      const year = yearMatch ? yearMatch[1] : currentYear;
+      return `${year}-${mNum}`;
+    }
+  }
+  return `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+}
+
 // Check for On-Load Reminders
 function checkReminders() {
   const now = new Date();
   
-  // Last day of the month check
+  // 1. Groq API Key Expiration Check (Target: Aug 20, 2027)
+  const groqExpiryDate = new Date('2027-08-20T23:59:59');
+  const daysUntilExpiry = Math.ceil((groqExpiryDate - now) / (1000 * 60 * 60 * 24));
+  
+  if (daysUntilExpiry <= 60 && daysUntilExpiry > 0) {
+    const lastKeyWarning = localStorage.getItem('last_groq_key_warning');
+    if (lastKeyWarning !== now.toDateString()) {
+      setTimeout(() => {
+        const warn = `⚠️ **Reminder**: Your Groq API Key will expire in **${daysUntilExpiry} days** (on August 20, 2027). Please remember to renew it before then!`;
+        chatHistory.push({ role: 'model', content: warn });
+        appendMessage('ai', warn);
+        saveChatHistory();
+        localStorage.setItem('last_groq_key_warning', now.toDateString());
+      }, 2000);
+    }
+  }
+  
+  // 2. Last day of the month check
   const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   if (now.getDate() === lastDay) {
     const reminder = "Hello! It's the last day of the month. Have you reviewed and logged all your investments?";
-    // Check if we already sent a reminder today to avoid spamming on refresh
     const lastReminderDate = localStorage.getItem('last_reminder_date');
     if (lastReminderDate !== now.toDateString()) {
       setTimeout(() => {
@@ -174,33 +334,88 @@ const groqTools = [
   {
     type: "function",
     function: {
-      name: "add_investment",
-      description: "Log a new investment amount for a specific asset for the current month.",
+      name: "manage_investments",
+      description: "Log, add, or update investment amounts for one or multiple assets for a specific month (e.g. September 2026). Safely preserves all other assets and months.",
       parameters: {
         type: "object",
         properties: {
+          month: {
+            type: "string",
+            description: "The target month (e.g. '2026-09', 'September', 'Sep 2026'). Defaults to current month."
+          },
+          investments: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                asset_id: {
+                  type: "string",
+                  description: "Name or ID of the asset (e.g. 'Parag Parikh', 'Emergency Fund', 'Car Fund', 'ICICI N50', 'HDFC BANK', etc.)"
+                },
+                amount: {
+                  type: "number",
+                  description: "The amount invested or added"
+                },
+                mode: {
+                  type: "string",
+                  description: "'add' to add to existing amount (default), or 'set' to set absolute total"
+                }
+              },
+              required: ["asset_id", "amount"]
+            },
+            description: "List of investments to add or update"
+          },
           asset_id: {
             type: "string",
-            description: "The ID of the asset (e.g. 'st_hdfc', 'mf_parag_parikh', 'goal_emergency_fund')"
+            description: "Single asset name or ID (fallback if single investment)"
           },
           amount: {
             type: "number",
-            description: "The amount invested"
+            description: "Amount (fallback if single investment)"
           }
         },
-        required: ["asset_id", "amount"]
+        required: []
       }
     }
-  }
-,
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_investment_data",
+      description: "Remove investment data for a specific month alone (e.g. delete 'September 2026' records), or remove a specific asset from that month without touching any other months.",
+      parameters: {
+        type: "object",
+        properties: {
+          month: {
+            type: "string",
+            description: "The month to delete records for (e.g. '2026-09', 'September')."
+          },
+          asset_id: {
+            type: "string",
+            description: "Optional. If specified, only removes this single asset from that month. If omitted, deletes the entire month record."
+          }
+        },
+        required: ["month"]
+      }
+    }
+  },
   {
     type: "function",
     function: {
       name: "get_investments",
-      description: "Get the user's current investment portfolio totals.",
+      description: "Get the user's investment portfolio data, asset balances, goals, emergency fund, and month-by-month records.",
       parameters: {
         type: "object",
-        properties: {},
+        properties: {
+          month: {
+            type: "string",
+            description: "Optional specific month to inspect (e.g. '2026-08', 'August'). If omitted, returns latest overview."
+          },
+          category: {
+            type: "string",
+            description: "Optional category filter (e.g. 'Mutual Funds', 'Goals', 'Emergency Fund', 'Stocks/ETFs', 'EPF', 'NPS')."
+          }
+        },
         required: []
       }
     }
@@ -222,12 +437,8 @@ const groqTools = [
 async function executeToolCall(call) {
   try {
     if (call.name === "get_investments") {
-      const getRes = await fetch(INVEST_GAS_URL + "?userId=" + SECURE_ID, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'getInvestments', userId: SECURE_ID })
-      });
-      return await getRes.text(); // Return raw string for LLM
+      const state = await fetchInvestCloudState();
+      return JSON.stringify(state);
     }
     else if (call.name === "get_habits") {
       const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
@@ -302,46 +513,81 @@ async function executeToolCall(call) {
       showToast("Habits Synced to Google Sheets!"); 
       return { status: "success", result: `Updated: ${updatedNames.join(', ')}` };
     } 
-    else if (call.name === "add_investment") {
-      const { asset_id, amount } = call.args;
-      // Get current month in YYYY-MM format
-      const now = new Date();
-      const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      
-      // We need to fetch current invested amount first, then add to it
-      const getRes = await fetch(INVEST_GAS_URL + "?userId=" + SECURE_ID, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'getInvestments', userId: SECURE_ID })
-      });
-      const getData = await getRes.json();
-      
-      let currentInvested = 0;
-      if(getData.records && getData.records[monthStr] && getData.records[monthStr][asset_id]) {
-        currentInvested = getData.records[monthStr][asset_id].invested || 0;
+    else if (call.name === "manage_investments" || call.name === "add_investment") {
+      const monthStr = normalizeMonth(call.args.month);
+      let items = call.args.investments || [];
+      if (items.length === 0 && call.args.asset_id && call.args.amount !== undefined) {
+        items.push({ asset_id: call.args.asset_id, amount: call.args.amount, mode: call.args.mode || 'add' });
       }
       
-      const newInvested = currentInvested + amount;
+      const state = await fetchInvestCloudState();
+      if (!state.records) state.records = {};
+      if (!state.assets) state.assets = DEFAULT_INVEST_ASSETS;
       
-      const payload = {
-        action: "sync",
-        userId: SECURE_ID,
-        state: {
-          records: {
-            [monthStr]: {
-              [asset_id]: { invested: newInvested, current: 0 }
-            }
-          }
+      // If target month does not exist, carry over baseline from previous month
+      if (!state.records[monthStr]) {
+        const existingMonths = Object.keys(state.records).sort();
+        const priorMonths = existingMonths.filter(m => m < monthStr);
+        if (priorMonths.length > 0) {
+          const latestPrior = priorMonths[priorMonths.length - 1];
+          // Deep clone prior month's balances
+          state.records[monthStr] = JSON.parse(JSON.stringify(state.records[latestPrior] || {}));
+        } else {
+          state.records[monthStr] = {};
         }
-      };
+      }
       
-      const res = await fetch(INVEST_GAS_URL + "?userId=" + SECURE_ID, { 
-        method: "POST", 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload) 
-      });
-      const data = await res.json();
-      showToast("Investment Synced to Google Sheets!"); return { status: "success", result: `Added ${amount}. New total for month: ${newInvested}` };
+      let updatedSummary = [];
+      for (const item of items) {
+        const matched = matchAsset(state.assets, item.asset_id);
+        if (!matched) {
+          updatedSummary.push(`Unknown asset "${item.asset_id}"`);
+          continue;
+        }
+        
+        const assetId = matched.id;
+        const currentAmount = (state.records[monthStr][assetId] && state.records[monthStr][assetId].invested) || 0;
+        const mode = item.mode || 'add';
+        const newAmount = mode === 'set' ? Number(item.amount) : currentAmount + Number(item.amount);
+        
+        state.records[monthStr][assetId] = {
+          invested: newAmount,
+          current: (state.records[monthStr][assetId] && state.records[monthStr][assetId].current) || 0
+        };
+        
+        updatedSummary.push(`${matched.name}: ₹${newAmount.toLocaleString('en-IN')}`);
+      }
+      
+      await saveInvestCloudState(state);
+      showToast("Investments Synced to Cloud!");
+      return { status: "success", result: `Updated ${monthStr}:\n` + updatedSummary.join('\n') };
+    }
+    else if (call.name === "remove_investment_data") {
+      const monthStr = normalizeMonth(call.args.month);
+      const state = await fetchInvestCloudState();
+      
+      if (!state.records || !state.records[monthStr]) {
+        return { status: "success", result: `No records found for ${monthStr}. Nothing to remove.` };
+      }
+      
+      if (call.args.asset_id) {
+        const matched = matchAsset(state.assets || DEFAULT_INVEST_ASSETS, call.args.asset_id);
+        const assetId = matched ? matched.id : call.args.asset_id;
+        if (state.records[monthStr][assetId]) {
+          delete state.records[monthStr][assetId];
+          await saveInvestCloudState(state);
+          showToast(`Removed from ${monthStr}`);
+          return { status: "success", result: `Removed ${matched ? matched.name : assetId} from ${monthStr}. All other data remains intact.` };
+        } else {
+          return { status: "success", result: `Asset was not present in ${monthStr}.` };
+        }
+      } else {
+        // Delete entire month alone
+        delete state.records[monthStr];
+        await saveInvestCloudState(state);
+        showToast(`Removed ${monthStr} Data`);
+        return { status: "success", result: `Removed all records for month ${monthStr} alone. All other months remain completely safe and intact.` };
+      }
     }
   } catch (e) {
     showToast("Sync Failed: " + e.toString()); return { status: "error", message: e.toString() };
@@ -356,13 +602,23 @@ async function sendToGroq(userMessage) {
   let recentHistory = chatHistory.slice(-10);
   
   const systemPrompt = `You are Ajith's personal AI agent (Leo). Today's date is ${new Date().toISOString().split('T')[0]}.
-You have tools to manage and update his Habit Tracker and Investment Portfolio.
-When the user mentions completing, doing, or unchecking habits:
-- If the user mentions ONE or MULTIPLE habits (e.g., "Unmark SRE, Workout and Sun", "I did maths and workout", "sun and workout also"):
-  ALWAYS call 'update_habit' and pass ALL the requested habits in the 'habit_ids' array (e.g. habit_ids: ["SRE", "Workout", "Sun"]).
-- Do NOT ignore any habit. Make sure every single habit mentioned is included.
-When logging an investment, use the 'add_investment' tool with the asset ID and amount.
-Always keep responses short, friendly, and confirm all habits that were updated.`;
+You manage his Habit Tracker and Investment Portfolio.
+
+Habits:
+- Common habits: Workout, SRE, Sun, Consistency, Maths, IQ, Finger nail, or any new habit.
+- When user marks or unmarks one or multiple habits (e.g. "Unmark SRE, Workout and Sun"), call 'update_habit' with habit_ids: ["SRE", "Workout", "Sun"].
+
+Investments & Portfolio:
+- When user asks how much funds they have, emergency fund balance, goals, car fund, or monthly totals: call 'get_investments'.
+- When user wants to add or log investments (e.g., "for September I added 3000 to Parag Parikh, 2000 to ICICI N50, and 5000 to Emergency fund"):
+  Call 'manage_investments' with month: "2026-09" and investments list.
+- When user asks to remove/delete records for a specific month (e.g., "remove data of September" or "delete September records"):
+  Call 'remove_investment_data' with month: "2026-09". Emphasize that only September was deleted and all other months are completely safe.
+
+API Key Info:
+- Your Groq API key is active and valid until August 20, 2027. If asked, confirm this accurately.
+
+Always keep responses short, clear, friendly, and confirm the exact actions taken.`;
 
   const messages = [
     { role: "system", content: systemPrompt },
@@ -439,8 +695,18 @@ Always keep responses short, friendly, and confirm all habits that were updated.
           let rawHabitIds = call.args.habit_ids || call.args.habit_id;
           let names = Array.isArray(rawHabitIds) ? rawHabitIds.join(', ') : (rawHabitIds || 'Habit');
           responses.push(action === 'uncheck' ? `Unmarked **${names}** for ${targetDate}. ⏪` : `Marked **${names}** for ${targetDate}! ☀️`);
-        } else if (call.name === "add_investment") {
-          responses.push(`Logged **₹${call.args.amount}** to **${call.args.asset_id}**! 📈`);
+        } else if (call.name === "manage_investments" || call.name === "add_investment") {
+          if (toolResult && toolResult.result) {
+            responses.push(toolResult.result);
+          } else {
+            responses.push(`Logged investment(s) successfully! 📈`);
+          }
+        } else if (call.name === "remove_investment_data") {
+          if (toolResult && toolResult.result) {
+            responses.push(toolResult.result);
+          } else {
+            responses.push(`Investment data removed successfully.`);
+          }
         }
       }
       
