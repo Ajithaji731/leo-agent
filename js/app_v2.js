@@ -438,7 +438,38 @@ async function executeToolCall(call) {
   try {
     if (call.name === "get_investments") {
       const state = await fetchInvestCloudState();
-      return JSON.stringify(state);
+      const months = Object.keys(state.records || {}).sort();
+      if (months.length === 0) return JSON.stringify({ message: "No investment records found" });
+      
+      const targetMonth = call.args.month ? normalizeMonth(call.args.month) : months[months.length - 1];
+      const monthData = state.records[targetMonth] || {};
+      const assets = state.assets || DEFAULT_INVEST_ASSETS;
+      
+      let totalNetWorth = 0;
+      let totalCore = 0;
+      let categoryTotals = {};
+      let items = [];
+      
+      assets.forEach(asset => {
+        const rec = monthData[asset.id];
+        const val = (rec && rec.invested) ? Number(rec.invested) : 0;
+        if (val > 0) {
+          totalNetWorth += val;
+          if (asset.category !== 'Goals' && asset.category !== 'Emergency Fund' && asset.category !== 'Gold Investment') {
+            totalCore += val;
+          }
+          categoryTotals[asset.category] = (categoryTotals[asset.category] || 0) + val;
+          items.push({ asset: asset.name, category: asset.category, invested: val });
+        }
+      });
+      
+      return JSON.stringify({
+        month: targetMonth,
+        totalNetWorth: totalNetWorth,
+        coreInvestments: totalCore,
+        categoryTotals: categoryTotals,
+        holdings: items
+      });
     }
     else if (call.name === "get_habits") {
       const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
@@ -599,7 +630,7 @@ async function executeToolCall(call) {
 
 async function sendToGroq(userMessage) {
   chatHistory.push({ role: 'user', content: userMessage });
-  let recentHistory = chatHistory.slice(-10);
+  let recentHistory = chatHistory.slice(-6);
   
   const systemPrompt = `You are Ajith's personal AI agent (Leo). Today's date is ${new Date().toISOString().split('T')[0]}.
 You manage his Habit Tracker and Investment Portfolio.
@@ -713,7 +744,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
       // If we just read data, ask the LLM to summarize it
       const justReadData = message.tool_calls.some(tc => tc.function.name.startsWith('get_'));
       if (justReadData) {
-         let newHistory = chatHistory.slice(-10);
+         let newHistory = chatHistory.slice(-6);
          const messages2 = [
            { role: "system", content: systemPrompt },
            ...newHistory.map(msg => {
