@@ -81,40 +81,10 @@ clearHistoryBtn.addEventListener('click', () => {
 
 // --- API Integrations ---
 
-// Load Chat History from Google Sheets
-async function loadChatHistory() {
-  let payload, response, data, part;
-  try {
-    const res = await fetch(AI_CHAT_GAS_URL + "?userId=" + SECURE_ID, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'getChat', userId: SECURE_ID })
-    });
-    const data = await res.json();
-    if (data && data.messages && data.messages.length > 0) {
-      chatHistory = data.messages;
-      chatContainer.innerHTML = ''; // Clear default greeting
-      chatHistory.forEach(msg => {
-        if (msg.role !== 'system' && !(msg.content && msg.content.startsWith('SYSTEM DEBUG:'))) { // Don't show system prompts
-          appendMessage(msg.role === 'model' ? 'ai' : 'user', msg.content, false);
-        }
-      });
-    }
-  } catch (e) {
-    console.error("Failed to load history", e);
-  }
-}
-
-// Save Chat History to Google Sheets
-async function saveChatHistory() {
-  let payload, response, data, part;
-  try {
-    fetch(AI_CHAT_GAS_URL + "?userId=" + SECURE_ID, {
-      method: 'POST',
-      body: JSON.stringify({ action: 'saveChat', userId: SECURE_ID, messages: chatHistory })
-    });
-  } catch (e) {
-    console.error("Failed to save history", e);
-  }
+// --- In-Memory Session State ---
+// Chat history is kept strictly in-memory during active session and never persisted to cloud
+function saveChatHistory() {
+  // No-op: history is not saved to cloud as requested
 }
 
 // --- Preloaded Invest Assets & Default Fallback ---
@@ -927,6 +897,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Pre-load data in background for instant responsiveness
   getHabitsState();
   fetchInvestCloudState();
-  await loadChatHistory();
   checkReminders();
 });
