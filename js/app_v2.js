@@ -140,26 +140,65 @@ const DEFAULT_INVEST_ASSETS = [
   { id: 'goal_digi_gold', name: 'Digi Gold', category: 'Gold Investment', sector: 'Gold Investments' }
 ];
 
-async function fetchInvestCloudState() {
+let cachedInvestState = null;
+async function fetchInvestCloudState(force = false) {
+  if (!force && cachedInvestState && cachedInvestState.records && Object.keys(cachedInvestState.records).length > 0) {
+    return cachedInvestState;
+  }
   try {
     const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
     const data = await res.json();
     let stateObj = data.records ? data : (data.state && data.state.records ? data.state : null);
     if (stateObj && stateObj.records && Object.keys(stateObj.records).length > 0) {
       if (!stateObj.assets || stateObj.assets.length === 0) stateObj.assets = DEFAULT_INVEST_ASSETS;
+      cachedInvestState = stateObj;
       return stateObj;
     }
   } catch (e) {
     console.error("Failed to fetch cloud invest state, using defaults", e);
   }
-  return {
+  const fallback = {
     assets: DEFAULT_INVEST_ASSETS,
     records: {},
     lastModified: Date.now()
   };
+  if (!cachedInvestState) cachedInvestState = fallback;
+  return fallback;
+}
+
+let cachedHabits = null;
+let cachedHabitsRaw = null;
+let isObjectWrapperHabits = false;
+
+async function getHabitsState(forceRefresh = false) {
+  if (!forceRefresh && cachedHabits && cachedHabits.length > 0) {
+    return { habits: cachedHabits, rawData: cachedHabitsRaw, isObjectWrapper: isObjectWrapperHabits };
+  }
+  try {
+    const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
+    let rawData = await getRes.json();
+    let habits = [];
+    let isObjectWrapper = false;
+    if (Array.isArray(rawData)) {
+      habits = rawData;
+    } else if (rawData && Array.isArray(rawData.habits)) {
+      habits = rawData.habits;
+      isObjectWrapper = true;
+    } else if (rawData && typeof rawData === 'object' && Object.keys(rawData).length > 0) {
+      habits = Array.isArray(rawData.habits) ? rawData.habits : [];
+    }
+    cachedHabits = habits;
+    cachedHabitsRaw = rawData;
+    isObjectWrapperHabits = isObjectWrapper;
+    return { habits, rawData, isObjectWrapper };
+  } catch (e) {
+    console.error("Failed to fetch habits", e);
+    return { habits: cachedHabits || [], rawData: cachedHabitsRaw || [], isObjectWrapper: false };
+  }
 }
 
 async function saveInvestCloudState(stateObj) {
+  cachedInvestState = stateObj;
   stateObj.lastModified = Date.now();
   const payload = {
     action: "sync",
@@ -508,8 +547,8 @@ async function executeToolCall(call) {
       });
     }
     else if (call.name === "get_habits") {
-      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
-      return await getRes.text();
+      const { habits } = await getHabitsState();
+      return JSON.stringify(habits);
     }
     else if (call.name === "update_habit") {
       let rawHabitIds = call.args.habit_ids || call.args.habit_id;
@@ -524,19 +563,8 @@ async function executeToolCall(call) {
       const targetDate = call.args.date || today;
       const action = call.args.action || 'check';
       
-      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
-      let rawData = await getRes.json();
-      let habits = [];
-      let isObjectWrapper = false;
-      
-      if (Array.isArray(rawData)) {
-        habits = rawData;
-      } else if (rawData && Array.isArray(rawData.habits)) {
-        habits = rawData.habits;
-        isObjectWrapper = true;
-      } else if (rawData && typeof rawData === 'object' && Object.keys(rawData).length > 0) {
-        habits = Array.isArray(rawData.habits) ? rawData.habits : [];
-      }
+      const stateObj = await getHabitsState();
+      let habits = stateObj.habits;
       
       let updatedNames = [];
       for (const hId of habitListToUpdate) {
@@ -563,7 +591,8 @@ async function executeToolCall(call) {
         updatedNames.push(foundHabit.name || hId);
       }
       
-      const stateToSave = isObjectWrapper ? { ...rawData, habits: habits } : habits;
+      cachedHabits = habits;
+      const stateToSave = stateObj.isObjectWrapper ? { ...stateObj.rawData, habits: habits } : habits;
       const payload = { 
         userId: SECURE_ID, 
         habits: habits,
@@ -571,16 +600,20 @@ async function executeToolCall(call) {
         state: stateToSave
       };
       
-      const res = await fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, { 
+      // Fire non-blocking background save to Google Sheets
+      fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, { 
         method: "POST", 
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload) 
+      }).then(res => res.json()).then(data => {
+        if (data && data.error) {
+          showToast("Sync Warning: " + data.error);
+        }
+      }).catch(err => {
+        console.warn("Background sync error:", err);
       });
-      const data = await res.json();
-      if (data && data.error) {
-        return { status: "error", message: data.error };
-      }
-      showToast("Habits Synced to Habit Tracker!"); 
+
+      showToast("Habits Synced!"); 
       return { status: "success", result: `Updated: ${updatedNames.join(', ')}` };
     } 
     else if (call.name === "manage_investments" || call.name === "add_investment") {
@@ -628,8 +661,8 @@ async function executeToolCall(call) {
         updatedSummary.push(`${matched.name}: ₹${newAmount.toLocaleString('en-IN')}`);
       }
       
-      await saveInvestCloudState(state);
-      showToast("Investments Synced to Cloud!");
+      saveInvestCloudState(state);
+      showToast("Investments Synced!");
       return { status: "success", result: `Updated ${monthStr}:\n` + updatedSummary.join('\n') };
     }
     else if (call.name === "remove_investment_data") {
@@ -645,7 +678,7 @@ async function executeToolCall(call) {
         const assetId = matched ? matched.id : call.args.asset_id;
         if (state.records[monthStr][assetId]) {
           delete state.records[monthStr][assetId];
-          await saveInvestCloudState(state);
+          saveInvestCloudState(state);
           showToast(`Removed from ${monthStr}`);
           return { status: "success", result: `Removed ${matched ? matched.name : assetId} from ${monthStr}. All other data remains intact.` };
         } else {
@@ -654,7 +687,7 @@ async function executeToolCall(call) {
       } else {
         // Delete entire month alone
         delete state.records[monthStr];
-        await saveInvestCloudState(state);
+        saveInvestCloudState(state);
         showToast(`Removed ${monthStr} Data`);
         return { status: "success", result: `Removed all records for month ${monthStr} alone. All other months remain completely safe and intact.` };
       }
@@ -702,7 +735,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
   ];
 
   let payload = {
-    model: "openai/gpt-oss-120b",
+    model: "llama-3.3-70b-versatile",
     messages: messages,
     tools: groqTools,
     temperature: 0.2,
@@ -806,7 +839,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
          ];
 
          let payload2 = {
-           model: "openai/gpt-oss-120b",
+           model: "llama-3.3-70b-versatile",
            messages: messages2,
            temperature: 0.2,
            max_tokens: 1000
@@ -891,7 +924,9 @@ if (themeSelector) {
 // Initialization
 
 window.addEventListener('DOMContentLoaded', async () => {
-  
+  // Pre-load data in background for instant responsiveness
+  getHabitsState();
+  fetchInvestCloudState();
   await loadChatHistory();
   checkReminders();
 });
