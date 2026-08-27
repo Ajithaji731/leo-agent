@@ -735,7 +735,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
   ];
 
   let payload = {
-    model: "llama-3.3-70b-versatile",
+    model: "openai/gpt-oss-120b",
     messages: messages,
     tools: groqTools,
     temperature: 0.2,
@@ -839,7 +839,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
          ];
 
          let payload2 = {
-           model: "llama-3.3-70b-versatile",
+           model: "openai/gpt-oss-120b",
            messages: messages2,
            temperature: 0.2,
            max_tokens: 1000
