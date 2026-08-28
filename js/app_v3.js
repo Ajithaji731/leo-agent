@@ -276,12 +276,16 @@ function matchHabit(habitsList, identifier) {
   return habitsList.find(h => h.name && (h.name.toLowerCase().includes(identifier.toLowerCase().trim()) || identifier.toLowerCase().trim().includes(h.name.toLowerCase())));
 }
 
-// Local Device Date in YYYY-MM-DD (Respects User Timezone / IST)
+// // Local IST Date in YYYY-MM-DD (India Standard Time / Asia/Kolkata)
 function getLocalDateISO(d = new Date()) {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(d);
+  } catch (e) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
 }
 
 // Calculate streak for habits
@@ -314,14 +318,14 @@ function calculateCurrentStreak(completedDates) {
   return streak;
 }
 
-// Normalize month string e.g. "september", "sept", "2026-09" -> "2026-09"
+// Normalize month string e.g. "september", "sept", "2026-09" -> "2026-09" (Strict IST)
 function normalizeMonth(monthInput) {
+  const istToday = getLocalDateISO();
+  const [currentYear, currentMonth] = istToday.split('-');
   if (!monthInput) {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return `${currentYear}-${currentMonth}`;
   }
-  const currentYear = new Date().getFullYear();
-  const input = monthInput.toLowerCase().trim();
+  const input = typeof monthInput === 'string' ? monthInput.toLowerCase().trim() : '';
   
   if (/^\d{4}-\d{2}$/.test(input)) return input;
   
@@ -347,7 +351,7 @@ function normalizeMonth(monthInput) {
       return `${year}-${mNum}`;
     }
   }
-  return `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  return `${currentYear}-${currentMonth}`;
 }
 
 // Check for On-Load Reminders
