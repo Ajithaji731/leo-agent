@@ -1016,11 +1016,12 @@ function tryFastHabitIntent(userText) {
     return { isManageHabit: true, action: 'add', name: habitName };
   }
 
-  // 5. Fast Action: Mark / Unmark habits
-  const markRegex = new RegExp('\\b(' + MARK_VERBS.join('|') + ')\\b', 'i');
+  // 5. Fast Action: Mark / Unmark habits (Strictly only when NOT a question/query)
+  const isQuery = /\b(how many|how much|how often|what|which|did i|have i|count|streak|stats?|history|record|status|overview|summary|list|all|\?)\b/i.test(clean);
   const unmarkRegex = new RegExp('\\b(' + UNMARK_VERBS.join('|') + ')\\b', 'i');
-  const isUnmark = unmarkRegex.test(clean);
-  const isMark = markRegex.test(clean);
+  const isUnmark = unmarkRegex.test(clean) && !isQuery;
+  const markRegex = new RegExp('\\b(' + MARK_VERBS.join('|') + ')\\b', 'i');
+  const isMark = (markRegex.test(clean) || /\b(i\s+did|done|completed|mark)\b/i.test(clean)) && !isQuery;
 
   if (isUnmark || isMark) {
     const detectedHabits = [];
