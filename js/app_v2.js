@@ -276,6 +276,44 @@ function matchHabit(habitsList, identifier) {
   return habitsList.find(h => h.name && (h.name.toLowerCase().includes(identifier.toLowerCase().trim()) || identifier.toLowerCase().trim().includes(h.name.toLowerCase())));
 }
 
+// Local Device Date in YYYY-MM-DD (Respects User Timezone / IST)
+function getLocalDateISO(d = new Date()) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+// Calculate streak for habits
+function calculateCurrentStreak(completedDates) {
+  if (!completedDates || completedDates.length === 0) return 0;
+  const sorted = [...new Set(completedDates)].sort().reverse();
+  const today = new Date();
+  const todayISO = getLocalDateISO(today);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayISO = getLocalDateISO(yesterday);
+
+  let streak = 0;
+  let checkDate = new Date(today);
+
+  if (!sorted.includes(todayISO)) {
+    if (!sorted.includes(yesterdayISO)) return 0;
+    checkDate = yesterday;
+  }
+
+  while (true) {
+    const iso = getLocalDateISO(checkDate);
+    if (sorted.includes(iso)) {
+      streak++;
+      checkDate.setDate(checkDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 // Normalize month string e.g. "september", "sept", "2026-09" -> "2026-09"
 function normalizeMonth(monthInput) {
   if (!monthInput) {
@@ -530,7 +568,7 @@ async function executeToolCall(call) {
         habitListToUpdate = rawHabitIds.split(',').map(s => s.trim()).filter(Boolean);
       }
       
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateISO();
       const targetDate = call.args.date || today;
       const action = call.args.action || 'check';
       
@@ -676,7 +714,7 @@ async function sendToGroq(userMessage) {
   chatHistory.push({ role: 'user', content: userMessage });
   let recentHistory = chatHistory.filter(m => m.role === 'user' || m.role === 'model').slice(-6);
   
-  const systemPrompt = `You are Ajith's personal AI agent (Leo). Today's date is ${new Date().toISOString().split('T')[0]}.
+  const systemPrompt = `You are Ajith's personal AI agent (Leo). Today's date is ${getLocalDateISO()}.
 You manage his Habit Tracker and Investment Portfolio.
 
 Habits:
@@ -775,7 +813,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
             responses.push(`⚠️ Failed to update habit: ${toolResult.message || 'Unknown error'}`);
           } else {
             const action = call.args.action || 'check';
-            const targetDate = call.args.date || new Date().toISOString().split('T')[0];
+            const targetDate = call.args.date || getLocalDateISO();
             let rawHabitIds = call.args.habit_ids || call.args.habit_id;
             let names = Array.isArray(rawHabitIds) ? rawHabitIds.join(', ') : (rawHabitIds || 'Habit');
             responses.push(action === 'uncheck' ? `Unmarked **${names}** for ${targetDate}. ⏪` : `Marked **${names}** for ${targetDate}! ☀️`);
@@ -806,7 +844,7 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
            })),
            { 
              role: 'user', 
-             content: `Retrieved data from database:\n${readResults.join('\n\n')}\n\nToday's date is ${new Date().toISOString().split('T')[0]}. Please answer my question: "${userMessage}". Format clearly with bullet points.`
+             content: `Retrieved data from database:\n${readResults.join('\n\n')}\n\nToday's date is ${getLocalDateISO()}. Please answer my question: "${userMessage}". Format clearly with bullet points.`
            }
          ];
 
@@ -865,7 +903,7 @@ const MARK_VERBS = ['mark', 'marked', 'did', 'done', 'finish', 'finished', 'comp
 const UNMARK_VERBS = ['unmark', 'unmarked', 'uncheck', 'unchecked', 'undo', 'remove', 'removed', 'delete', 'deleted', 'skip', 'skipped', 'miss', 'missed', 'revert', 'reverted', 'cancel', 'cancelled', 'did not', 'didnt', 'not done'];
 
 function getIndexedHabitsSummary(targetDate) {
-  const todayISO = targetDate || new Date().toISOString().split('T')[0];
+  const todayISO = targetDate || getLocalDateISO();
   const habits = cachedHabits || [];
   const completed = [];
   const pending = [];
@@ -884,12 +922,68 @@ function getIndexedHabitsSummary(targetDate) {
 function tryFastHabitIntent(userText) {
   const raw = userText.trim().toLowerCase();
   const clean = raw.replace(/[?!.,]/g, '').trim();
-  const todayISO = new Date().toISOString().split('T')[0];
+  const todayISO = getLocalDateISO();
 
   // 1. List All Configured Habits Query
   if (/\b(what\s*habits|list\s*habits|show\s*habits|my\s*habits|all\s*habits|habit\s*list)\b/i.test(clean)) {
     const list = (cachedHabits || []).map((h, i) => `${i + 1}. **${h.name}**`).join('\n');
     return `📋 **Your Tracked Habits:**\n\n${list || 'No habits configured yet.'}\n\n*Tell me anytime to mark, unmark, or add habits!* ☀️`;
+  }
+
+  // 1b. Weekly Summary / Past 7 Days
+  if (/\b(last\s*week|past\s*week|this\s*week|past\s*7\s*days|last\s*7\s*days|weekly\s*summary|weekly\s*status)\b/i.test(clean)) {
+    const today = new Date();
+    const past7Days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      past7Days.push(getLocalDateISO(d));
+    }
+    const fromDate = past7Days[0];
+    const toDate = past7Days[past7Days.length - 1];
+
+    let totalCompletions = 0;
+    const habitCounts = [];
+    (cachedHabits || []).forEach(h => {
+      const dates = Array.isArray(h.completedDates) ? h.completedDates : [];
+      const countInWindow = dates.filter(d => past7Days.includes(d)).length;
+      totalCompletions += countInWindow;
+      habitCounts.push(`- **${h.name}**: ${countInWindow} / 7 days`);
+    });
+
+    return `📅 **Weekly Summary (${fromDate} to ${toDate}):**\n\n- **Total Completions:** ${totalCompletions}\n\n**Breakdown:**\n${habitCounts.join('\n')}`;
+  }
+
+  // 1c. Habit Lifetime Stats & Streaks (e.g. "how much i did sre totally", "workout count", "streak for sun")
+  const isStatQuery = /\b(total|totally|all\s*time|how\s*many\s*times|how\s*much|count|streak|stats?|history|record)\b/i.test(clean) &&
+    !/\b(put|add|invest|invested|saved|logged|bought|delete|del)\b/i.test(clean);
+
+  if (isStatQuery) {
+    const habitsList = cachedHabits || [];
+    for (const h of habitsList) {
+      const cleanName = h.name.toLowerCase();
+      const words = cleanName.split(/\s+/);
+      let matches = clean.includes(cleanName);
+      if (!matches) {
+        for (const w of words) {
+          if (w.length > 2 && new RegExp('\\b' + w + '\\b', 'i').test(clean)) {
+            matches = true;
+            break;
+          }
+        }
+      }
+      if (!matches && clean.includes('sre') && cleanName === 'sre') matches = true;
+      if (!matches && (clean.includes('gym') || clean.includes('exercise') || clean.includes('workout')) && cleanName === 'workout') matches = true;
+      if (!matches && (clean.includes('nail') || clean.includes('nails') || clean.includes('finger')) && cleanName.includes('finger')) matches = true;
+
+      if (matches) {
+        const dates = Array.isArray(h.completedDates) ? h.completedDates : [];
+        const totalCount = dates.length;
+        const streak = calculateCurrentStreak(dates);
+        const lastDone = dates.length > 0 ? [...dates].sort().reverse()[0] : 'Never';
+        return `📊 **Habit Statistics: ${h.name}**\n\n- **Total Completed:** ${totalCount} day(s)\n- **Current Streak:** ${streak} day(s) 🔥\n- **Last Completed:** ${lastDone}`;
+      }
+    }
   }
 
   // 2. Fast Query: Completed habits today
@@ -1185,7 +1279,7 @@ chatForm.addEventListener('submit', async (e) => {
           args: {
             habit_ids: [hName],
             action: 'check',
-            date: new Date().toISOString().split('T')[0]
+            date: getLocalDateISO()
           }
         });
         const reply = `✨ **Created new habit "${hName}"!**\n\n*Added and synced to your Habit Tracker!* ☀️`;
