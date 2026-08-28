@@ -844,6 +844,280 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
   }
 }
 
+// ==========================================
+// --- Fast Indexing & Intent Engine (0ms) ---
+// ==========================================
+
+const FAST_HABIT_ALIASES = {
+  'sre': 'SRE',
+  'workout': 'Workout',
+  'gym': 'Workout',
+  'exercise': 'Workout',
+  'working out': 'Workout',
+  'sun': 'Sun',
+  'sunlight': 'Sun',
+  'morning sun': 'Sun',
+  'consistency': 'Consistency',
+  'math': 'Maths',
+  'maths': 'Maths',
+  'mathematics': 'Maths',
+  'iq': 'IQ',
+  'puzzles': 'IQ',
+  'finger': 'Finger nail',
+  'fingers': 'Finger nail',
+  'fingernail': 'Finger nail',
+  'fingernails': 'Finger nail',
+  'finger nail': 'Finger nail',
+  'nails': 'Finger nail',
+  'nail': 'Finger nail',
+  'language': 'Language',
+  'lang': 'Language',
+  'languages': 'Language'
+};
+
+function getIndexedHabitsSummary(targetDate) {
+  const todayISO = targetDate || new Date().toISOString().split('T')[0];
+  const habits = cachedHabits || [];
+  const completed = [];
+  const pending = [];
+  
+  habits.forEach(h => {
+    if (Array.isArray(h.completedDates) && h.completedDates.includes(todayISO)) {
+      completed.push(h.name);
+    } else {
+      pending.push(h.name);
+    }
+  });
+  
+  return { date: todayISO, completed, pending };
+}
+
+function tryFastHabitIntent(userText) {
+  const raw = userText.trim().toLowerCase();
+  const clean = raw.replace(/[?!.,]/g, '').trim();
+  const todayISO = new Date().toISOString().split('T')[0];
+
+  // 1. Fast Query: Completed habits today
+  if (/^(what|show|list|tell|which).*(did|done|completed|finished|have done).*(today|habits?)?/i.test(clean) ||
+      /^(what|show|list).*(i\s+did|i\s+have\s+done|all\s+i\s+did|completed).*(today)?/i.test(clean) ||
+      /^(habits\s+today|today\s+habits|status\s+today)$/i.test(clean)) {
+    const summary = getIndexedHabitsSummary(todayISO);
+    if (summary.completed.length === 0) {
+      return `📅 **Status for Today (${todayISO}):**\n\nNo habits completed yet today. Let me know when you finish any! ☀️\n\n**Pending:**\n` + summary.pending.map(h => `- ${h}`).join('\n');
+    }
+    const completedList = summary.completed.map(h => `- **${h}** ✅`).join('\n');
+    const pendingList = summary.pending.map(h => `- ${h}`).join('\n');
+    return `📅 **Habits you completed today (${todayISO}):**\n\n${completedList}\n\n**Pending:**\n${pendingList || 'None! All done 🎉'}`;
+  }
+
+  // 2. Fast Query: Pending habits today
+  if (/^(what|show|list|which).*(pending|left|remaining|not\s+done).*(today|habits?)?/i.test(clean)) {
+    const summary = getIndexedHabitsSummary(todayISO);
+    if (summary.pending.length === 0) {
+      return `🎉 **Amazing!** You have completed all your habits for today (${todayISO})! ☀️`;
+    }
+    const pendingList = summary.pending.map(h => `- **${h}** ⏳`).join('\n');
+    return `⏳ **Pending habits for today (${todayISO}):**\n\n${pendingList}`;
+  }
+
+  // 3. Fast Action: Mark / Unmark habits
+  const isUnmark = /\b(unmark|uncheck|undo|remove|didn't|did not|not done)\b/i.test(clean);
+  const isMark = /\b(mark|did|done|completed|checked)\b/i.test(clean) || /\b(done|completed)\b/i.test(clean);
+
+  if (isUnmark || isMark) {
+    const detectedHabits = [];
+    const habitsList = cachedHabits || [];
+    
+    // Check known aliases
+    for (const [alias, canonicalName] of Object.entries(FAST_HABIT_ALIASES)) {
+      const regex = new RegExp(`\\b${alias}\\b`, 'i');
+      if (regex.test(clean)) {
+        if (!detectedHabits.includes(canonicalName)) {
+          detectedHabits.push(canonicalName);
+        }
+      }
+    }
+
+    // Also check any active habits in cache or subwords of habit names
+    habitsList.forEach(h => {
+      if (h.name && !detectedHabits.includes(h.name)) {
+        const regex = new RegExp(`\\b${h.name.toLowerCase()}\\b`, 'i');
+        if (regex.test(clean)) {
+          detectedHabits.push(h.name);
+        } else {
+          // Check words inside multi-word habits (e.g. "finger" in "Finger nail")
+          const words = h.name.toLowerCase().split(/\s+/);
+          for (const w of words) {
+            if (w.length > 3 && new RegExp(`\\b${w}\\b`, 'i').test(clean)) {
+              detectedHabits.push(h.name);
+              break;
+            }
+          }
+        }
+      }
+    });
+
+    if (detectedHabits.length > 0) {
+      return {
+        isFastAction: true,
+        action: isUnmark ? 'uncheck' : 'check',
+        habit_ids: detectedHabits,
+        date: todayISO
+      };
+    }
+  }
+
+  return null;
+}
+
+function tryFastInvestQuery(userText, investState) {
+  const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '');
+  if (!investState || !investState.records) return null;
+  
+  const months = Object.keys(investState.records).sort();
+  if (months.length === 0) return null;
+  const targetMonth = months[months.length - 1];
+  const monthData = investState.records[targetMonth] || {};
+  const assets = investState.assets || DEFAULT_INVEST_ASSETS;
+  
+  // 1. Category: Mutual Funds
+  if (/^(how much|what|show|list).*(invested|investment|balance|have).*(mutual funds?|mf)/i.test(clean) || /^(mutual funds?|mf)\s*(balance|total)?$/i.test(clean)) {
+    let totalMF = 0;
+    let mfList = [];
+    assets.filter(a => a.category === 'Mutual Funds').forEach(a => {
+      const val = (monthData[a.id] && monthData[a.id].invested) || 0;
+      if (val > 0) {
+        totalMF += val;
+        mfList.push(`- **${a.name}**: ₹${val.toLocaleString('en-IN')}`);
+      }
+    });
+    return `📈 **Mutual Funds Investment (${targetMonth}):**\n\n**Total:** ₹${totalMF.toLocaleString('en-IN')}\n\n` + (mfList.join('\n') || 'No mutual fund records logged for this month.');
+  }
+  
+  // 2. Category: Emergency Fund
+  if (/^(how much|what|show).*(emergency\s*fund|emergency)/i.test(clean) || /^(emergency\s*fund|emergency)\s*(balance|total)?$/i.test(clean)) {
+    const efAsset = assets.find(a => a.id === 'goal_emergency_fund');
+    const val = (efAsset && monthData[efAsset.id] && monthData[efAsset.id].invested) || 0;
+    return `🛡️ **Emergency Fund Balance (${targetMonth}):**\n\n**Total:** ₹${val.toLocaleString('en-IN')}`;
+  }
+
+  // 3. Category: Total Portfolio / Net Worth
+  if (/^(total|how much|what|show).*(net\s*worth|portfolio|total\s*investments?)/i.test(clean) || /^(portfolio|net\s*worth)$/i.test(clean)) {
+    let total = 0;
+    let coreTotal = 0;
+    assets.forEach(a => {
+      const val = (monthData[a.id] && monthData[a.id].invested) || 0;
+      total += val;
+      if (a.category !== 'Goals' && a.category !== 'Emergency Fund' && a.category !== 'Gold Investment') {
+        coreTotal += val;
+      }
+    });
+    return `💼 **Portfolio Overview (${targetMonth}):**\n\n- **Total Net Worth:** ₹${total.toLocaleString('en-IN')}\n- **Core Investments:** ₹${coreTotal.toLocaleString('en-IN')}`;
+  }
+
+  // 4. Any Individual Asset Query (e.g. "how much i have in digi gold", "tata capital balance", "what is in ppf", "gold")
+  const isQuery = /\b(how much|what is|what's|balance|total|value|amount|show|tell|check|holding|funds?)\b/i.test(clean) 
+    && !/\b(put|add|added|invest|invested|saved|logged|bought|deposit|set)\b/i.test(clean);
+
+  if (isQuery) {
+    for (const asset of assets) {
+      const assetClean = asset.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (clean.includes(asset.name.toLowerCase()) || (clean.includes(assetClean) && assetClean.length > 3)) {
+        const val = (monthData[asset.id] && monthData[asset.id].invested) || 0;
+        return `💰 **${asset.name} (${targetMonth}):**\n\n**Invested Amount:** ₹${val.toLocaleString('en-IN')}\n**Category:** ${asset.category || 'General'}`;
+      }
+    }
+    const matched = matchAsset(assets, clean);
+    if (matched) {
+      const val = (monthData[matched.id] && monthData[matched.id].invested) || 0;
+      return `💰 **${matched.name} (${targetMonth}):**\n\n**Invested Amount:** ₹${val.toLocaleString('en-IN')}\n**Category:** ${matched.category || 'General'}`;
+    }
+  }
+
+  return null;
+}
+
+function tryFastInvestLog(userText, investState) {
+  const clean = userText.trim().toLowerCase();
+  
+  // Must contain an investment action keyword
+  const isAddAction = /\b(add|added|invest|invested|put|saved|logged|deposit|deposited|bought)\b/i.test(clean);
+  const isSetAction = /\b(set|updated|update)\b/i.test(clean);
+  if (!isAddAction && !isSetAction) return null;
+  
+  // Extract month (supports September, October, Nov, 2026-09, etc.)
+  let targetMonth = null;
+  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sept', 'sep', 'oct', 'nov', 'dec'];
+  for (const m of monthNames) {
+    if (new RegExp('\\b' + m + '\\b', 'i').test(clean)) {
+      targetMonth = normalizeMonth(m);
+      break;
+    }
+  }
+  if (!targetMonth) {
+    targetMonth = normalizeMonth(null); // defaults to current month
+  }
+
+  // Parse amount and asset items
+  const items = [];
+  const assets = (investState && investState.assets) || DEFAULT_INVEST_ASSETS;
+  const monthRegex = new RegExp('\\b(' + monthNames.join('|') + '|for|in|to|into|month|added|add|invested|invest|put|saved|logged|set|deposit)\\b', 'gi');
+
+  // Split clauses by 'and', ',', '&'
+  const parts = clean.split(/\band\b|,|&|\+/i);
+  for (const part of parts) {
+    const numMatch = part.match(/(?:₹|rs\.?\s*)?(\d+(?:,\d+)*(?:\.\d+)?)\s*(k|lakh|lac)?/i);
+    if (numMatch) {
+      let rawVal = parseFloat(numMatch[1].replace(/,/g, ''));
+      if (numMatch[2] && numMatch[2].toLowerCase() === 'k') rawVal *= 1000;
+      if (numMatch[2] && (numMatch[2].toLowerCase() === 'lakh' || numMatch[2].toLowerCase() === 'lac')) rawVal *= 100000;
+
+      const assetCandidate = part.replace(numMatch[0], '')
+        .replace(monthRegex, '')
+        .trim();
+
+      const matchedAsset = matchAsset(assets, assetCandidate);
+      if (matchedAsset && rawVal > 0) {
+        items.push({
+          asset_id: matchedAsset.id,
+          name: matchedAsset.name,
+          amount: rawVal,
+          mode: isSetAction ? 'set' : 'add'
+        });
+      }
+    }
+  }
+
+  if (items.length > 0) {
+    return {
+      month: targetMonth,
+      items: items
+    };
+  }
+
+  return null;
+}
+
+function tryFastInvestDelete(userText) {
+  const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '');
+  const isDel = /\b(delete|del|remove|clear|wipe|erase)\b/i.test(clean);
+  if (!isDel) return null;
+
+  let targetMonth = null;
+  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sept', 'sep', 'oct', 'nov', 'dec'];
+  for (const m of monthNames) {
+    if (new RegExp('\\b' + m + '\\b', 'i').test(clean)) {
+      targetMonth = normalizeMonth(m);
+      break;
+    }
+  }
+  const yyyymmMatch = clean.match(/\b(20\d\d-\d\d)\b/);
+  if (yyyymmMatch) targetMonth = yyyymmMatch[1];
+
+  if (targetMonth) return { month: targetMonth };
+  return null;
+}
+
 // --- Chat Form Submission ---
 chatForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -854,19 +1128,83 @@ chatForm.addEventListener('submit', async (e) => {
   appendMessage('user', text);
   chatInput.value = '';
   
-  // Show typing indicator
+  // 1. Try Fast Habit Index (0ms)
+  const habitFastMatch = tryFastHabitIntent(text);
+  if (habitFastMatch) {
+    if (typeof habitFastMatch === 'string') {
+      appendMessage('ai', habitFastMatch);
+      chatHistory.push({ role: 'user', content: text });
+      chatHistory.push({ role: 'model', content: habitFastMatch });
+      return;
+    } else if (habitFastMatch.isFastAction) {
+      executeToolCall({
+        name: 'update_habit',
+        args: {
+          habit_ids: habitFastMatch.habit_ids,
+          action: habitFastMatch.action,
+          date: habitFastMatch.date
+        }
+      });
+      const names = habitFastMatch.habit_ids.join(', ');
+      const reply = habitFastMatch.action === 'uncheck'
+        ? `Unmarked **${names}** for ${habitFastMatch.date}. ⏪`
+        : `Marked **${names}** for ${habitFastMatch.date}! ☀️`;
+      appendMessage('ai', reply);
+      chatHistory.push({ role: 'user', content: text });
+      chatHistory.push({ role: 'model', content: reply });
+      return;
+    }
+  }
+
+  // 2. Try Fast Investment Log Action (0ms)
+  const investLogMatch = tryFastInvestLog(text, cachedInvestState);
+  if (investLogMatch && investLogMatch.items.length > 0) {
+    executeToolCall({
+      name: 'manage_investments',
+      args: {
+        month: investLogMatch.month,
+        investments: investLogMatch.items
+      }
+    });
+    const summaryLines = investLogMatch.items.map(item => `- **${item.name}**: +₹${item.amount.toLocaleString('en-IN')}`);
+    const reply = `📈 **Logged Investment(s) for ${investLogMatch.month}:**\n\n${summaryLines.join('\n')}\n\n*Saved to your portfolio!*`;
+    appendMessage('ai', reply);
+    chatHistory.push({ role: 'user', content: text });
+    chatHistory.push({ role: 'model', content: reply });
+    return;
+  }
+
+  // 3. Try Fast Investment Delete Action (0ms)
+  const investDelMatch = tryFastInvestDelete(text);
+  if (investDelMatch) {
+    executeToolCall({
+      name: 'remove_investment_data',
+      args: {
+        month: investDelMatch.month
+      }
+    });
+    const reply = `🗑️ **Removed all records for month ${investDelMatch.month} alone.**\n\n*All other months remain completely safe and intact!*`;
+    appendMessage('ai', reply);
+    chatHistory.push({ role: 'user', content: text });
+    chatHistory.push({ role: 'model', content: reply });
+    return;
+  }
+
+  // 4. Try Fast Investment Query Index (0ms)
+  const investFastMatch = tryFastInvestQuery(text, cachedInvestState);
+  if (investFastMatch) {
+    appendMessage('ai', investFastMatch);
+    chatHistory.push({ role: 'user', content: text });
+    chatHistory.push({ role: 'model', content: investFastMatch });
+    return;
+  }
+  
+  // 5. Fallback to Full Groq LLM (for conversational chat & complex instructions)
   showTypingIndicator();
-  
-  // Get AI response
   const aiResponse = await sendToGroq(text);
-  
-  // Hide typing indicator and render AI message
   hideTypingIndicator();
   appendMessage('ai', aiResponse);
-  
-  // Save to history
   chatHistory.push({ role: 'model', content: aiResponse });
-  saveChatHistory();
 });
 
 
