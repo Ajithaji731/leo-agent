@@ -178,7 +178,8 @@ async function saveInvestCloudState(stateObj) {
   const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    keepalive: true
   });
   return await res.json();
 }
@@ -570,11 +571,12 @@ async function executeToolCall(call) {
         state: stateToSave
       };
       
-      // Fire non-blocking background save to Google Sheets
+      // Fire non-blocking background save to Google Sheets (keepalive ensures delivery even if tab is closed immediately)
       fetch(HABIT_GAS_URL + "?userId=" + SECURE_ID, { 
         method: "POST", 
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload) 
+        body: JSON.stringify(payload),
+        keepalive: true
       }).then(res => res.json()).then(data => {
         if (data && data.error) {
           showToast("Sync Warning: " + data.error);
