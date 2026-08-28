@@ -851,31 +851,18 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
 // ==========================================
 
 const FAST_HABIT_ALIASES = {
-  'sre': 'SRE',
-  'workout': 'Workout',
-  'gym': 'Workout',
-  'exercise': 'Workout',
-  'working out': 'Workout',
-  'sun': 'Sun',
-  'sunlight': 'Sun',
-  'morning sun': 'Sun',
-  'consistency': 'Consistency',
-  'math': 'Maths',
-  'maths': 'Maths',
-  'mathematics': 'Maths',
-  'iq': 'IQ',
-  'puzzles': 'IQ',
-  'finger': 'Finger nail',
-  'fingers': 'Finger nail',
-  'fingernail': 'Finger nail',
-  'fingernails': 'Finger nail',
-  'finger nail': 'Finger nail',
-  'nails': 'Finger nail',
-  'nail': 'Finger nail',
-  'language': 'Language',
-  'lang': 'Language',
-  'languages': 'Language'
+  'sre': 'SRE', 'sre study': 'SRE', 'sre revision': 'SRE',
+  'workout': 'Workout', 'gym': 'Workout', 'exercise': 'Workout', 'exercised': 'Workout', 'working out': 'Workout', 'lifted': 'Workout', 'training': 'Workout', 'weights': 'Workout',
+  'sun': 'Sun', 'sunlight': 'Sun', 'morning sun': 'Sun', 'sun exposure': 'Sun', 'sunshine': 'Sun',
+  'consistency': 'Consistency', 'streak': 'Consistency',
+  'math': 'Maths', 'maths': 'Maths', 'mathematics': 'Maths', 'math problem': 'Maths',
+  'iq': 'IQ', 'puzzles': 'IQ', 'brain': 'IQ', 'riddles': 'IQ', 'iq test': 'IQ',
+  'finger': 'Finger nail', 'fingers': 'Finger nail', 'fingernail': 'Finger nail', 'fingernails': 'Finger nail', 'finger nail': 'Finger nail', 'nails': 'Finger nail', 'nail': 'Finger nail',
+  'language': 'Language', 'lang': 'Language', 'languages': 'Language', 'vocab': 'Language', 'grammar': 'Language', 'duolingo': 'Language', 'speaking': 'Language'
 };
+
+const MARK_VERBS = ['mark', 'marked', 'did', 'done', 'finish', 'finished', 'complete', 'completed', 'check', 'checked', 'log', 'logged', 'track', 'tracked', 'achieve', 'achieved', 'studied', 'practiced', 'exercised', 'walked', 'read', 'lifted', 'trained', 'meditated', 'prayed'];
+const UNMARK_VERBS = ['unmark', 'unmarked', 'uncheck', 'unchecked', 'undo', 'remove', 'removed', 'delete', 'deleted', 'skip', 'skipped', 'miss', 'missed', 'revert', 'reverted', 'cancel', 'cancelled', 'did not', 'didnt', 'not done'];
 
 function getIndexedHabitsSummary(targetDate) {
   const todayISO = targetDate || new Date().toISOString().split('T')[0];
@@ -899,10 +886,15 @@ function tryFastHabitIntent(userText) {
   const clean = raw.replace(/[?!.,]/g, '').trim();
   const todayISO = new Date().toISOString().split('T')[0];
 
-  // 1. Fast Query: Completed habits today
-  if (/^(what|show|list|tell|which).*(did|done|completed|finished|have done).*(today|habits?)?/i.test(clean) ||
-      /^(what|show|list).*(i\s+did|i\s+have\s+done|all\s+i\s+did|completed).*(today)?/i.test(clean) ||
-      /^(habits\s+today|today\s+habits|status\s+today)$/i.test(clean)) {
+  // 1. List All Configured Habits Query
+  if (/\b(what\s*habits|list\s*habits|show\s*habits|my\s*habits|all\s*habits|habit\s*list)\b/i.test(clean)) {
+    const list = (cachedHabits || []).map((h, i) => `${i + 1}. **${h.name}**`).join('\n');
+    return `📋 **Your Tracked Habits:**\n\n${list || 'No habits configured yet.'}\n\n*Tell me anytime to mark, unmark, or add habits!* ☀️`;
+  }
+
+  // 2. Fast Query: Completed habits today
+  if (/\b(what\s*did\s*i\s*do|what\s*i\s*did|what\s*all\s*i\s*did|what\s*have\s*i\s*done|things\s*i\s*have\s*done|what\s*is\s*done|what\s*is\s*completed|habits\s*today|today\s*status|completed\s*today|done\s*today)\b/i.test(clean) ||
+      (/^(what|show|list|tell|which).*(did|done|completed|finished|have done).*(today|habits?)?/i.test(clean))) {
     const summary = getIndexedHabitsSummary(todayISO);
     if (summary.completed.length === 0) {
       return `📅 **Status for Today (${todayISO}):**\n\nNo habits completed yet today. Let me know when you finish any! ☀️\n\n**Pending:**\n` + summary.pending.map(h => `- ${h}`).join('\n');
@@ -912,8 +904,9 @@ function tryFastHabitIntent(userText) {
     return `📅 **Habits you completed today (${todayISO}):**\n\n${completedList}\n\n**Pending:**\n${pendingList || 'None! All done 🎉'}`;
   }
 
-  // 2. Fast Query: Pending habits today
-  if (/^(what|show|list|which).*(pending|left|remaining|not\s+done).*(today|habits?)?/i.test(clean)) {
+  // 3. Fast Query: Pending habits today
+  if (/\b(what\s*is\s*pending|pending\s*habits|what\s*is\s*left|whats\s*left|remaining\s*habits|not\s*done\s*today)\b/i.test(clean) ||
+      (/^(what|show|list|which).*(pending|left|remaining|not\s*done).*(today|habits?)?/i.test(clean))) {
     const summary = getIndexedHabitsSummary(todayISO);
     if (summary.pending.length === 0) {
       return `🎉 **Amazing!** You have completed all your habits for today (${todayISO})! ☀️`;
@@ -922,9 +915,18 @@ function tryFastHabitIntent(userText) {
     return `⏳ **Pending habits for today (${todayISO}):**\n\n${pendingList}`;
   }
 
-  // 3. Fast Action: Mark / Unmark habits
-  const isUnmark = /\b(unmark|uncheck|undo|remove|didn't|did not|not done)\b/i.test(clean);
-  const isMark = /\b(mark|did|done|completed|checked)\b/i.test(clean) || /\b(done|completed)\b/i.test(clean);
+  // 4. Create / Delete Habits Directly
+  const addHabitMatch = clean.match(/^(?:add|create|new)\s+habit\s+([a-z0-9\s]+)$/i);
+  if (addHabitMatch) {
+    const habitName = addHabitMatch[1].trim();
+    return { isManageHabit: true, action: 'add', name: habitName };
+  }
+
+  // 5. Fast Action: Mark / Unmark habits
+  const markRegex = new RegExp('\\b(' + MARK_VERBS.join('|') + ')\\b', 'i');
+  const unmarkRegex = new RegExp('\\b(' + UNMARK_VERBS.join('|') + ')\\b', 'i');
+  const isUnmark = unmarkRegex.test(clean);
+  const isMark = markRegex.test(clean);
 
   if (isUnmark || isMark) {
     const detectedHabits = [];
@@ -1175,6 +1177,23 @@ chatForm.addEventListener('submit', async (e) => {
       chatHistory.push({ role: 'user', content: text });
       chatHistory.push({ role: 'model', content: habitFastMatch });
       return;
+    } else if (habitFastMatch.isManageHabit) {
+      if (habitFastMatch.action === 'add') {
+        const hName = habitFastMatch.name.charAt(0).toUpperCase() + habitFastMatch.name.slice(1);
+        executeToolCall({
+          name: 'update_habit',
+          args: {
+            habit_ids: [hName],
+            action: 'check',
+            date: new Date().toISOString().split('T')[0]
+          }
+        });
+        const reply = `✨ **Created new habit "${hName}"!**\n\n*Added and synced to your Habit Tracker!* ☀️`;
+        appendMessage('ai', reply);
+        chatHistory.push({ role: 'user', content: text });
+        chatHistory.push({ role: 'model', content: reply });
+        return;
+      }
     } else if (habitFastMatch.isFastAction) {
       executeToolCall({
         name: 'update_habit',
