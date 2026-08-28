@@ -982,42 +982,79 @@ function tryFastInvestQuery(userText, investState) {
   const monthData = investState.records[targetMonth] || {};
   const assets = investState.assets || DEFAULT_INVEST_ASSETS;
   
-  // 1. Category: Mutual Funds
-  if (/^(how much|what|show|list).*(invested|investment|balance|have).*(mutual funds?|mf)/i.test(clean) || /^(mutual funds?|mf)\s*(balance|total)?$/i.test(clean)) {
+  // 1. Total Net Worth / Total Invested / Portfolio Summary
+  if (/\b(total\s*net\s*worth|net\s*worth|networth|invested\s*amount|total\s*invested|total\s*investment|total\s*portfolio|portfolio\s*overview|portfolio\s*summary|all\s*investments|list\s*all\s*investments|my\s*holdings)\b/i.test(clean) ||
+      (/\b(total|how much|what)\b/i.test(clean) && /\b(networth|net\s*worth|invested|investments?|portfolio|total)\b/i.test(clean) && !/\b(put|add|added|set)\b/i.test(clean))) {
+    let totalNetWorth = 0;
+    let totalCore = 0;
+    let categoryTotals = {};
+    assets.forEach(a => {
+      const val = (monthData[a.id] && monthData[a.id].invested) || 0;
+      if (val > 0) {
+        totalNetWorth += val;
+        if (a.category !== 'Goals' && a.category !== 'Emergency Fund' && a.category !== 'Gold Investment') {
+          totalCore += val;
+        }
+        categoryTotals[a.category] = (categoryTotals[a.category] || 0) + val;
+      }
+    });
+    const catLines = Object.entries(categoryTotals).map(([cat, sum]) => `- **${cat}**: ₹${sum.toLocaleString('en-IN')}`).join('\n');
+    return `💼 **Portfolio Overview (${targetMonth}):**\n\n- **Total Net Worth:** ₹${totalNetWorth.toLocaleString('en-IN')}\n- **Core Investments:** ₹${totalCore.toLocaleString('en-IN')}\n\n**Breakdown by Category:**\n${catLines || 'No active holdings logged yet.'}`;
+  }
+
+  // 2. Stocks / ETFs Category
+  if (/\b(stocks?|etfs?|shares?|equit(y|ies))\b/i.test(clean) && !/\b(mf|mutual|fund|put|add|added|set)\b/i.test(clean)) {
+    let totalStocks = 0;
+    let list = [];
+    assets.filter(a => a.category === 'Stocks/ETFs').forEach(a => {
+      const val = (monthData[a.id] && monthData[a.id].invested) || 0;
+      if (val > 0) {
+        totalStocks += val;
+        list.push(`- **${a.name}**: ₹${val.toLocaleString('en-IN')}`);
+      }
+    });
+    return `📊 **Stocks & ETFs Holdings (${targetMonth}):**\n\n**Total Invested:** ₹${totalStocks.toLocaleString('en-IN')}\n\n${list.join('\n') || 'No stock records logged for this month.'}`;
+  }
+
+  // 3. Mutual Funds Category
+  if (/\b(mutual\s*funds?|mfs?)\b/i.test(clean) && !/\b(put|add|added|set)\b/i.test(clean)) {
     let totalMF = 0;
-    let mfList = [];
+    let list = [];
     assets.filter(a => a.category === 'Mutual Funds').forEach(a => {
       const val = (monthData[a.id] && monthData[a.id].invested) || 0;
       if (val > 0) {
         totalMF += val;
-        mfList.push(`- **${a.name}**: ₹${val.toLocaleString('en-IN')}`);
+        list.push(`- **${a.name}**: ₹${val.toLocaleString('en-IN')}`);
       }
     });
-    return `📈 **Mutual Funds Investment (${targetMonth}):**\n\n**Total:** ₹${totalMF.toLocaleString('en-IN')}\n\n` + (mfList.join('\n') || 'No mutual fund records logged for this month.');
-  }
-  
-  // 2. Category: Emergency Fund
-  if (/^(how much|what|show).*(emergency\s*fund|emergency)/i.test(clean) || /^(emergency\s*fund|emergency)\s*(balance|total)?$/i.test(clean)) {
-    const efAsset = assets.find(a => a.id === 'goal_emergency_fund');
-    const val = (efAsset && monthData[efAsset.id] && monthData[efAsset.id].invested) || 0;
-    return `🛡️ **Emergency Fund Balance (${targetMonth}):**\n\n**Total:** ₹${val.toLocaleString('en-IN')}`;
+    return `📈 **Mutual Funds Investment (${targetMonth}):**\n\n**Total Invested:** ₹${totalMF.toLocaleString('en-IN')}\n\n${list.join('\n') || 'No mutual fund records logged for this month.'}`;
   }
 
-  // 3. Category: Total Portfolio / Net Worth
-  if (/^(total|how much|what|show).*(net\s*worth|portfolio|total\s*investments?)/i.test(clean) || /^(portfolio|net\s*worth)$/i.test(clean)) {
-    let total = 0;
-    let coreTotal = 0;
-    assets.forEach(a => {
+  // 4. Gold / Silver / Commodities
+  if (/\b(gold|silver|digi\s*gold|commodit(y|ies))\b/i.test(clean) && !/\b(parag|hdfc|icici|tata|put|add|added|set)\b/i.test(clean)) {
+    let totalGold = 0;
+    let list = [];
+    assets.filter(a => a.category === 'Gold Investment' || (a.sector && (a.sector.includes('Gold') || a.sector.includes('Silver')))).forEach(a => {
       const val = (monthData[a.id] && monthData[a.id].invested) || 0;
-      total += val;
-      if (a.category !== 'Goals' && a.category !== 'Emergency Fund' && a.category !== 'Gold Investment') {
-        coreTotal += val;
+      if (val > 0) {
+        totalGold += val;
+        list.push(`- **${a.name}**: ₹${val.toLocaleString('en-IN')}`);
       }
     });
-    return `💼 **Portfolio Overview (${targetMonth}):**\n\n- **Total Net Worth:** ₹${total.toLocaleString('en-IN')}\n- **Core Investments:** ₹${coreTotal.toLocaleString('en-IN')}`;
+    return `🪙 **Gold & Silver Holdings (${targetMonth}):**\n\n**Total:** ₹${totalGold.toLocaleString('en-IN')}\n\n${list.join('\n') || 'No gold/silver records logged.'}`;
   }
 
-  // 4. Any Individual Asset Query (e.g. "how much i have in digi gold", "tata capital balance", "what is in ppf", "gold")
+  // 5. Emergency Fund & Goals
+  if (/\b(emergency\s*fund|emergency|goals?|car\s*fund)\b/i.test(clean) && !/\b(put|add|added|set)\b/i.test(clean)) {
+    let list = [];
+    assets.filter(a => a.category === 'Emergency Fund' || a.category === 'Goals').forEach(a => {
+      const val = (monthData[a.id] && monthData[a.id].invested) || 0;
+      list.push(`- **${a.name}**: ₹${val.toLocaleString('en-IN')}`);
+    });
+    return `🛡️ **Emergency & Goal Funds (${targetMonth}):**\n\n${list.join('\n')}`;
+  }
+
+  // 6. Any Individual Asset Query (e.g. "how much i have in digi gold", "tata capital balance", "what is in ppf", "gold")
   const isQuery = /\b(how much|what is|what's|balance|total|value|amount|show|tell|check|holding|funds?)\b/i.test(clean) 
     && !/\b(put|add|added|invest|invested|saved|logged|bought|deposit|set)\b/i.test(clean);
 
