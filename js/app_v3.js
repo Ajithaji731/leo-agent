@@ -264,22 +264,30 @@ function matchHabit(habitsList, identifier) {
     'fingernails': 'Finger nail',
     'nail': 'Finger nail',
     'nails': 'Finger nail',
-    'hindi': 'Hindi Language',
-    'hindilanguage': 'Hindi Language',
-    'hindilang': 'Hindi Language',
-    'hindilesson': 'Hindi Language',
-    'hindipractice': 'Hindi Language',
-    'hindistudy': 'Hindi Language',
-    'hindiclass': 'Hindi Language',
-    'kannada': 'Kannada Language',
-    'kannadalanguage': 'Kannada Language',
-    'kannadalang': 'Kannada Language',
-    'kannadalesson': 'Kannada Language',
-    'kannadapractice': 'Kannada Language',
-    'kannadastudy': 'Kannada Language',
-    'kannadaclass': 'Kannada Language',
     'language': 'Language',
-    'lang': 'Language'
+    'lang': 'Language',
+    'languages': 'Language',
+    'hindi': 'Language',
+    'hindilanguage': 'Language',
+    'hindilang': 'Language',
+    'hindilesson': 'Language',
+    'hindipractice': 'Language',
+    'hindistudy': 'Language',
+    'hindiclass': 'Language',
+    'learnhindi': 'Language',
+    'kannada': 'Language',
+    'kannadalanguage': 'Language',
+    'kannadalang': 'Language',
+    'kannadalesson': 'Language',
+    'kannadapractice': 'Language',
+    'kannadastudy': 'Language',
+    'kannadaclass': 'Language',
+    'learnkannada': 'Language',
+    'learnlanguage': 'Language',
+    'vocab': 'Language',
+    'grammar': 'Language',
+    'duolingo': 'Language',
+    'speaking': 'Language'
   };
   
   if (aliases[clean]) {
@@ -290,12 +298,12 @@ function matchHabit(habitsList, identifier) {
     ));
     if (match) return match;
 
-    if (clean.includes('hindi')) {
-      match = habitsList.find(h => h.name && h.name.toLowerCase().includes('hindi'));
-      if (match) return match;
-    }
-    if (clean.includes('kannada')) {
-      match = habitsList.find(h => h.name && h.name.toLowerCase().includes('kannada'));
+    if (targetName === 'Language') {
+      match = habitsList.find(h => h.name && (
+        h.name.toLowerCase().includes('lang') ||
+        h.name.toLowerCase().includes('hindi') ||
+        h.name.toLowerCase().includes('kannada')
+      ));
       if (match) return match;
     }
   }
@@ -750,9 +758,9 @@ async function sendToGroq(userMessage) {
 You manage his Habit Tracker and Investment Portfolio.
 
 Habits:
-- Common habits: Workout, SRE, Sun, Consistency, Maths, IQ, Finger nail, Hindi Language, Kannada Language, language, or any habit.
-- Marking complete: When user did/completed a habit (e.g. "did hindi", "did kannada lang", "mark SRE done today"), call 'update_habit' with action: 'check' and habit_ids.
-- Unmarking: When user says "unmark", "undo", "uncheck", "didn't do", "remove" (e.g. "Unmark hindi for today", "undo workout"), you MUST call 'update_habit' with action: 'uncheck' and habit_ids.
+- Common habits: Workout, SRE, Sun, Consistency, Maths, IQ, Finger nail, Language (all language study like Hindi, Kannada, etc. map to 'Language'), or any habit.
+- Marking complete: When user did/completed a habit (e.g. "did language", "learn hindi", "did kannada lang", "mark SRE done today"), call 'update_habit' with action: 'check' and habit_ids.
+- Unmarking: When user says "unmark", "undo", "uncheck", "didn't do", "remove" (e.g. "Unmark language for today", "undo workout"), you MUST call 'update_habit' with action: 'uncheck' and habit_ids.
 - Querying Habits: When user asks what habits they completed today, what is pending, what habits they have, or asks about their habit streak/status (e.g. "what all things I have done today ?", "what's pending?"): ALWAYS call 'get_habits'.
 - When multiple habits are mentioned in one message, always include all of them in the 'habit_ids' array.
 
@@ -928,9 +936,9 @@ const FAST_HABIT_ALIASES = {
   'math': 'Maths', 'maths': 'Maths', 'mathematics': 'Maths', 'math problem': 'Maths',
   'iq': 'IQ', 'puzzles': 'IQ', 'brain': 'IQ', 'riddles': 'IQ', 'iq test': 'IQ',
   'finger': 'Finger nail', 'fingers': 'Finger nail', 'fingernail': 'Finger nail', 'fingernails': 'Finger nail', 'finger nail': 'Finger nail', 'nails': 'Finger nail', 'nail': 'Finger nail',
-  'hindi language': 'Hindi Language', 'hindi lang': 'Hindi Language', 'hindilang': 'Hindi Language', 'hindilanguage': 'Hindi Language', 'hindi study': 'Hindi Language', 'hindi practice': 'Hindi Language', 'hindi lesson': 'Hindi Language', 'hindi revision': 'Hindi Language', 'hindi class': 'Hindi Language', 'hindi': 'Hindi Language',
-  'kannada language': 'Kannada Language', 'kannada lang': 'Kannada Language', 'kannadalang': 'Kannada Language', 'kannadalanguage': 'Kannada Language', 'kannada study': 'Kannada Language', 'kannada practice': 'Kannada Language', 'kannada lesson': 'Kannada Language', 'kannada revision': 'Kannada Language', 'kannada class': 'Kannada Language', 'kannada': 'Kannada Language',
-  'language': 'Language', 'lang': 'Language', 'languages': 'Language', 'vocab': 'Language', 'grammar': 'Language', 'duolingo': 'Language', 'speaking': 'Language'
+  'learn hindi': 'Language', 'learned hindi': 'Language', 'learning hindi': 'Language', 'hindi language': 'Language', 'hindi lang': 'Language', 'hindilang': 'Language', 'hindilanguage': 'Language', 'hindi study': 'Language', 'hindi practice': 'Language', 'hindi lesson': 'Language', 'hindi revision': 'Language', 'hindi class': 'Language', 'hindi': 'Language',
+  'learn kannada': 'Language', 'learned kannada': 'Language', 'learning kannada': 'Language', 'kannada language': 'Language', 'kannada lang': 'Language', 'kannadalang': 'Language', 'kannadalanguage': 'Language', 'kannada study': 'Language', 'kannada practice': 'Language', 'kannada lesson': 'Language', 'kannada revision': 'Language', 'kannada class': 'Language', 'kannada': 'Language',
+  'learn language': 'Language', 'learning language': 'Language', 'language learning': 'Language', 'language practice': 'Language', 'language study': 'Language', 'language': 'Language', 'lang': 'Language', 'languages': 'Language', 'vocab': 'Language', 'grammar': 'Language', 'duolingo': 'Language', 'speaking': 'Language'
 };
 
 const MARK_VERBS = ['mark', 'marked', 'did', 'done', 'finish', 'finished', 'complete', 'completed', 'check', 'checked', 'log', 'logged', 'track', 'tracked', 'achieve', 'achieved', 'studied', 'practiced', 'exercised', 'walked', 'read', 'lifted', 'trained', 'meditated', 'prayed'];
@@ -988,7 +996,7 @@ function tryFastHabitIntent(userText) {
     return `📅 **Weekly Summary (${fromDate} to ${toDate}):**\n\n- **Total Completions:** ${totalCompletions}\n\n**Breakdown:**\n${habitCounts.join('\n')}`;
   }
 
-  // 1c. Habit Lifetime Stats & Streaks (e.g. "how much i did sre totally", "workout count", "streak for sun", "hindi streak", "kannada count", "kannada streaks ? hindi streaks ?")
+  // 1c. Habit Lifetime Stats & Streaks (e.g. "how much i did sre totally", "workout count", "streak for sun", "hindi streak", "kannada count", "language streak")
   const isStatQuery = /\b(total|totally|all\s*time|how\s*many\s*times|how\s*much|count|streak|streaks|stats?|history|record)\b/i.test(clean) &&
     !/\b(put|add|invest|invested|saved|logged|bought|delete|del)\b/i.test(clean);
 
@@ -1010,8 +1018,7 @@ function tryFastHabitIntent(userText) {
       if (!matches && clean.includes('sre') && cleanName === 'sre') matches = true;
       if (!matches && (clean.includes('gym') || clean.includes('exercise') || clean.includes('workout')) && cleanName === 'workout') matches = true;
       if (!matches && (clean.includes('nail') || clean.includes('nails') || clean.includes('finger')) && cleanName.includes('finger')) matches = true;
-      if (!matches && (clean.includes('hindi') || clean.includes('hindilang') || clean.includes('hindi lang')) && cleanName.includes('hindi')) matches = true;
-      if (!matches && (clean.includes('kannada') || clean.includes('kannadalang') || clean.includes('kannada lang')) && cleanName.includes('kannada')) matches = true;
+      if (!matches && (clean.includes('hindi') || clean.includes('kannada') || clean.includes('lang') || clean.includes('language')) && (cleanName.includes('lang') || cleanName.includes('hindi') || cleanName.includes('kannada'))) matches = true;
 
       if (matches) {
         const dates = Array.isArray(h.completedDates) ? h.completedDates : [];
@@ -1069,10 +1076,6 @@ function tryFastHabitIntent(userText) {
     
     // Check known aliases
     for (const [alias, canonicalName] of Object.entries(FAST_HABIT_ALIASES)) {
-      // If alias is generic language/lang and user explicitly mentioned hindi or kannada, skip generic alias
-      if ((alias === 'language' || alias === 'lang' || alias === 'languages') && (clean.includes('hindi') || clean.includes('kannada'))) {
-        continue;
-      }
       const regex = new RegExp(`\\b${alias}\\b`, 'i');
       if (regex.test(clean)) {
         // Resolve canonicalName to exact habit in cachedHabits if available
