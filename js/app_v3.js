@@ -111,6 +111,11 @@ const DEFAULT_INVEST_ASSETS = [
 ];
 
 let cachedInvestState = null;
+try {
+  const savedInvest = localStorage.getItem('leo_cached_invest_state');
+  if (savedInvest) cachedInvestState = JSON.parse(savedInvest);
+} catch (e) {}
+
 async function fetchInvestCloudState(force = false) {
   if (!force && cachedInvestState && cachedInvestState.records && Object.keys(cachedInvestState.records).length > 0) {
     return cachedInvestState;
@@ -122,6 +127,7 @@ async function fetchInvestCloudState(force = false) {
     if (stateObj && stateObj.records && Object.keys(stateObj.records).length > 0) {
       if (!stateObj.assets || stateObj.assets.length === 0) stateObj.assets = DEFAULT_INVEST_ASSETS;
       cachedInvestState = stateObj;
+      try { localStorage.setItem('leo_cached_invest_state', JSON.stringify(stateObj)); } catch (e) {}
       return stateObj;
     }
   } catch (e) {
@@ -139,6 +145,20 @@ async function fetchInvestCloudState(force = false) {
 let cachedHabits = null;
 let cachedHabitsRaw = null;
 let isObjectWrapperHabits = false;
+try {
+  const savedHabits = localStorage.getItem('leo_cached_habits');
+  if (savedHabits) {
+    const parsed = JSON.parse(savedHabits);
+    if (parsed && parsed.habits) {
+      cachedHabits = parsed.habits;
+      cachedHabitsRaw = parsed.rawData;
+      isObjectWrapperHabits = parsed.isObjectWrapper || false;
+    } else if (Array.isArray(parsed)) {
+      cachedHabits = parsed;
+      cachedHabitsRaw = parsed;
+    }
+  }
+} catch (e) {}
 
 async function getHabitsState(forceRefresh = false) {
   if (!forceRefresh && cachedHabits && cachedHabits.length > 0) {
@@ -160,6 +180,7 @@ async function getHabitsState(forceRefresh = false) {
     cachedHabits = habits;
     cachedHabitsRaw = rawData;
     isObjectWrapperHabits = isObjectWrapper;
+    try { localStorage.setItem('leo_cached_habits', JSON.stringify({ habits, rawData, isObjectWrapper })); } catch (e) {}
     return { habits, rawData, isObjectWrapper };
   } catch (e) {
     console.error("Failed to fetch habits", e);
@@ -947,6 +968,9 @@ const UNMARK_VERBS = ['unmark', 'unmarked', 'uncheck', 'unchecked', 'undo', 'rem
 function getIndexedHabitsSummary(targetDate) {
   const todayISO = targetDate || getLocalDateISO();
   const habits = cachedHabits || [];
+  if (habits.length === 0) {
+    return { date: todayISO, completed: [], pending: [], isEmpty: true };
+  }
   const completed = [];
   const pending = [];
   
@@ -958,7 +982,7 @@ function getIndexedHabitsSummary(targetDate) {
     }
   });
   
-  return { date: todayISO, completed, pending };
+  return { date: todayISO, completed, pending, isEmpty: false };
 }
 
 function tryFastHabitIntent(userText) {
@@ -996,7 +1020,7 @@ function tryFastHabitIntent(userText) {
     return `📅 **Weekly Summary (${fromDate} to ${toDate}):**\n\n- **Total Completions:** ${totalCompletions}\n\n**Breakdown:**\n${habitCounts.join('\n')}`;
   }
 
-  // 1c. Habit Lifetime Stats & Streaks (e.g. "how much i did sre totally", "workout count", "streak for sun", "hindi streak", "kannada count", "language streak")
+  // 1c. Habit Lifetime Stats & Streaks
   const isStatQuery = /\b(total|totally|all\s*time|how\s*many\s*times|how\s*much|count|streak|streaks|stats?|history|record)\b/i.test(clean) &&
     !/\b(put|add|invest|invested|saved|logged|bought|delete|del)\b/i.test(clean);
 
@@ -1037,18 +1061,25 @@ function tryFastHabitIntent(userText) {
   if (/\b(what\s*did\s*i\s*do|what\s*i\s*did|what\s*all\s*i\s*did|what\s*have\s*i\s*done|things\s*i\s*have\s*done|what\s*is\s*done|what\s*is\s*completed|habits\s*today|today\s*status|completed\s*today|done\s*today)\b/i.test(clean) ||
       (/^(what|show|list|tell|which).*(did|done|completed|finished|have done).*(today|habits?)?/i.test(clean))) {
     const summary = getIndexedHabitsSummary(todayISO);
+    if (summary.isEmpty) {
+      return null;
+    }
     if (summary.completed.length === 0) {
-      return `📅 **Status for Today (${todayISO}):**\n\nNo habits completed yet today. Let me know when you finish any! ☀️\n\n**Pending:**\n` + summary.pending.map(h => `- ${h}`).join('\n');
+      const pendingList = summary.pending.length > 0 ? summary.pending.map(h => `- ${h}`).join('\n') : 'No active habits found.';
+      return `📅 **Status for Today (${todayISO}):**\n\nNo habits completed yet today. Let me know when you finish any! ☀️\n\n**Pending:**\n${pendingList}`;
     }
     const completedList = summary.completed.map(h => `- **${h}** ✅`).join('\n');
-    const pendingList = summary.pending.map(h => `- ${h}`).join('\n');
-    return `📅 **Habits you completed today (${todayISO}):**\n\n${completedList}\n\n**Pending:**\n${pendingList || 'None! All done 🎉'}`;
+    const pendingList = summary.pending.length > 0 ? summary.pending.map(h => `- ${h}`).join('\n') : 'None! All done 🎉';
+    return `📅 **Habits you completed today (${todayISO}):**\n\n${completedList}\n\n**Pending:**\n${pendingList}`;
   }
 
   // 3. Fast Query: Pending habits today
   if (/\b(what\s*is\s*pending|pending\s*habits|what\s*is\s*left|whats\s*left|remaining\s*habits|not\s*done\s*today)\b/i.test(clean) ||
       (/^(what|show|list|which).*(pending|left|remaining|not\s*done).*(today|habits?)?/i.test(clean))) {
     const summary = getIndexedHabitsSummary(todayISO);
+    if (summary.isEmpty) {
+      return null;
+    }
     if (summary.pending.length === 0) {
       return `🎉 **Amazing!** You have completed all your habits for today (${todayISO})! ☀️`;
     }
@@ -1313,6 +1344,15 @@ chatForm.addEventListener('submit', async (e) => {
   // Render user message instantly
   appendMessage('user', text);
   chatInput.value = '';
+
+  // Ensure habit cache is populated
+  if (!cachedHabits || cachedHabits.length === 0) {
+    await getHabitsState();
+  }
+  // Ensure invest cache is populated
+  if (!cachedInvestState || !cachedInvestState.records || Object.keys(cachedInvestState.records).length === 0) {
+    await fetchInvestCloudState();
+  }
   
   // 1. Try Fast Habit Index (0ms)
   const habitFastMatch = tryFastHabitIntent(text);
