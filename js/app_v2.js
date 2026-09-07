@@ -1432,6 +1432,19 @@ if (themeSelector) {
   });
 }
 
+// --- Quick Prompt Suggestion Chips ---
+const quickChipsContainer = document.getElementById('quickChipsContainer');
+if (quickChipsContainer) {
+  quickChipsContainer.addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip-btn');
+    if (!btn) return;
+    const query = btn.getAttribute('data-query');
+    if (!query) return;
+    chatInput.value = query;
+    chatForm.dispatchEvent(new Event('submit'));
+  });
+}
+
 // Initialization
 
 window.addEventListener('DOMContentLoaded', async () => {
