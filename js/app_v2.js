@@ -116,30 +116,39 @@ try {
   if (savedInvest) cachedInvestState = JSON.parse(savedInvest);
 } catch (e) {}
 
-async function fetchInvestCloudState(force = false) {
+let investFetchPromise = null;
+function fetchInvestCloudState(force = false) {
   if (!force && cachedInvestState && cachedInvestState.records && Object.keys(cachedInvestState.records).length > 0) {
-    return cachedInvestState;
+    return Promise.resolve(cachedInvestState);
   }
-  try {
-    const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
-    const data = await res.json();
-    let stateObj = data.records ? data : (data.state && data.state.records ? data.state : null);
-    if (stateObj && stateObj.records && Object.keys(stateObj.records).length > 0) {
-      if (!stateObj.assets || stateObj.assets.length === 0) stateObj.assets = DEFAULT_INVEST_ASSETS;
-      cachedInvestState = stateObj;
-      try { localStorage.setItem('leo_cached_invest_state', JSON.stringify(stateObj)); } catch (e) {}
-      return stateObj;
+  if (!force && investFetchPromise) {
+    return investFetchPromise;
+  }
+  investFetchPromise = (async () => {
+    try {
+      const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
+      const data = await res.json();
+      let stateObj = data.records ? data : (data.state && data.state.records ? data.state : null);
+      if (stateObj && stateObj.records && Object.keys(stateObj.records).length > 0) {
+        if (!stateObj.assets || stateObj.assets.length === 0) stateObj.assets = DEFAULT_INVEST_ASSETS;
+        cachedInvestState = stateObj;
+        try { localStorage.setItem('leo_cached_invest_state', JSON.stringify(stateObj)); } catch (e) {}
+        return stateObj;
+      }
+    } catch (e) {
+      console.error("Failed to fetch cloud invest state, using defaults", e);
+    } finally {
+      investFetchPromise = null;
     }
-  } catch (e) {
-    console.error("Failed to fetch cloud invest state, using defaults", e);
-  }
-  const fallback = {
-    assets: DEFAULT_INVEST_ASSETS,
-    records: {},
-    lastModified: Date.now()
-  };
-  if (!cachedInvestState) cachedInvestState = fallback;
-  return fallback;
+    const fallback = {
+      assets: DEFAULT_INVEST_ASSETS,
+      records: {},
+      lastModified: Date.now()
+    };
+    if (!cachedInvestState) cachedInvestState = fallback;
+    return fallback;
+  })();
+  return investFetchPromise;
 }
 
 let cachedHabits = null;
@@ -149,43 +158,54 @@ try {
   const savedHabits = localStorage.getItem('leo_cached_habits');
   if (savedHabits) {
     const parsed = JSON.parse(savedHabits);
-    if (parsed && parsed.habits) {
+    if (parsed && parsed.habits && parsed.habits.length > 0) {
       cachedHabits = parsed.habits;
       cachedHabitsRaw = parsed.rawData;
       isObjectWrapperHabits = parsed.isObjectWrapper || false;
-    } else if (Array.isArray(parsed)) {
+    } else if (Array.isArray(parsed) && parsed.length > 0) {
       cachedHabits = parsed;
       cachedHabitsRaw = parsed;
     }
   }
 } catch (e) {}
 
-async function getHabitsState(forceRefresh = false) {
+let habitsFetchPromise = null;
+function getHabitsState(forceRefresh = false) {
   if (!forceRefresh && cachedHabits && cachedHabits.length > 0) {
-    return { habits: cachedHabits, rawData: cachedHabitsRaw, isObjectWrapper: isObjectWrapperHabits };
+    return Promise.resolve({ habits: cachedHabits, rawData: cachedHabitsRaw, isObjectWrapper: isObjectWrapperHabits });
   }
-  try {
-    const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
-    let rawData = await getRes.json();
-    let habits = [];
-    let isObjectWrapper = false;
-    if (Array.isArray(rawData)) {
-      habits = rawData;
-    } else if (rawData && Array.isArray(rawData.habits)) {
-      habits = rawData.habits;
-      isObjectWrapper = true;
-    } else if (rawData && typeof rawData === 'object' && Object.keys(rawData).length > 0) {
-      habits = Array.isArray(rawData.habits) ? rawData.habits : [];
+  if (!forceRefresh && habitsFetchPromise) {
+    return habitsFetchPromise;
+  }
+  habitsFetchPromise = (async () => {
+    try {
+      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
+      let rawData = await getRes.json();
+      let habits = [];
+      let isObjectWrapper = false;
+      if (Array.isArray(rawData)) {
+        habits = rawData;
+      } else if (rawData && Array.isArray(rawData.habits)) {
+        habits = rawData.habits;
+        isObjectWrapper = true;
+      } else if (rawData && typeof rawData === 'object' && Object.keys(rawData).length > 0) {
+        habits = Array.isArray(rawData.habits) ? rawData.habits : [];
+      }
+      if (habits.length > 0) {
+        cachedHabits = habits;
+        cachedHabitsRaw = rawData;
+        isObjectWrapperHabits = isObjectWrapper;
+        try { localStorage.setItem('leo_cached_habits', JSON.stringify({ habits, rawData, isObjectWrapper })); } catch (e) {}
+      }
+      return { habits: cachedHabits || habits, rawData, isObjectWrapper };
+    } catch (e) {
+      console.error("Failed to fetch habits", e);
+      return { habits: cachedHabits || [], rawData: cachedHabitsRaw || [], isObjectWrapper: false };
+    } finally {
+      habitsFetchPromise = null;
     }
-    cachedHabits = habits;
-    cachedHabitsRaw = rawData;
-    isObjectWrapperHabits = isObjectWrapper;
-    try { localStorage.setItem('leo_cached_habits', JSON.stringify({ habits, rawData, isObjectWrapper })); } catch (e) {}
-    return { habits, rawData, isObjectWrapper };
-  } catch (e) {
-    console.error("Failed to fetch habits", e);
-    return { habits: cachedHabits || [], rawData: cachedHabitsRaw || [], isObjectWrapper: false };
-  }
+  })();
+  return habitsFetchPromise;
 }
 
 async function saveInvestCloudState(stateObj) {
@@ -1343,15 +1363,19 @@ chatForm.addEventListener('submit', async (e) => {
 
   // Render user message instantly
   appendMessage('user', text);
-  chatInput.value = '';
-
   // Ensure habit cache is populated
-  if (!cachedHabits || cachedHabits.length === 0) {
+  if (!cachedHabits || cachedHabits.length === 0 || habitsFetchPromise) {
+    const needIndicator = !cachedHabits || cachedHabits.length === 0;
+    if (needIndicator) showTypingIndicator();
     await getHabitsState();
+    if (needIndicator) hideTypingIndicator();
   }
   // Ensure invest cache is populated
-  if (!cachedInvestState || !cachedInvestState.records || Object.keys(cachedInvestState.records).length === 0) {
+  if (!cachedInvestState || !cachedInvestState.records || Object.keys(cachedInvestState.records).length === 0 || investFetchPromise) {
+    const needIndicator = !cachedInvestState || !cachedInvestState.records;
+    if (needIndicator) showTypingIndicator();
     await fetchInvestCloudState();
+    if (needIndicator) hideTypingIndicator();
   }
   
   // 1. Try Fast Habit Index (0ms)
