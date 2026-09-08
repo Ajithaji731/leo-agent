@@ -111,17 +111,22 @@ const DEFAULT_INVEST_ASSETS = [
 ];
 
 let cachedInvestState = null;
+let lastInvestFetchTime = 0;
 try {
   const savedInvest = localStorage.getItem('leo_cached_invest_state');
-  if (savedInvest) cachedInvestState = JSON.parse(savedInvest);
+  if (savedInvest) {
+    const parsed = JSON.parse(savedInvest);
+    if (parsed && parsed.records) cachedInvestState = parsed;
+  }
 } catch (e) {}
 
 let investFetchPromise = null;
 function fetchInvestCloudState(force = false) {
-  if (!force && cachedInvestState && cachedInvestState.records && Object.keys(cachedInvestState.records).length > 0) {
+  const now = Date.now();
+  if (!force && cachedInvestState && cachedInvestState.records && Object.keys(cachedInvestState.records).length > 0 && (now - lastInvestFetchTime < 30000)) {
     return Promise.resolve(cachedInvestState);
   }
-  if (!force && investFetchPromise) {
+  if (investFetchPromise) {
     return investFetchPromise;
   }
   investFetchPromise = (async () => {
@@ -132,6 +137,7 @@ function fetchInvestCloudState(force = false) {
       if (stateObj && stateObj.records && Object.keys(stateObj.records).length > 0) {
         if (!stateObj.assets || stateObj.assets.length === 0) stateObj.assets = DEFAULT_INVEST_ASSETS;
         cachedInvestState = stateObj;
+        lastInvestFetchTime = Date.now();
         try { localStorage.setItem('leo_cached_invest_state', JSON.stringify(stateObj)); } catch (e) {}
         return stateObj;
       }
@@ -154,6 +160,7 @@ function fetchInvestCloudState(force = false) {
 let cachedHabits = null;
 let cachedHabitsRaw = null;
 let isObjectWrapperHabits = false;
+let lastHabitFetchTime = 0;
 try {
   const savedHabits = localStorage.getItem('leo_cached_habits');
   if (savedHabits) {
@@ -162,6 +169,7 @@ try {
       cachedHabits = parsed.habits;
       cachedHabitsRaw = parsed.rawData;
       isObjectWrapperHabits = parsed.isObjectWrapper || false;
+      lastHabitFetchTime = parsed.time || 0;
     } else if (Array.isArray(parsed) && parsed.length > 0) {
       cachedHabits = parsed;
       cachedHabitsRaw = parsed;
@@ -171,10 +179,11 @@ try {
 
 let habitsFetchPromise = null;
 function getHabitsState(forceRefresh = false) {
-  if (!forceRefresh && cachedHabits && cachedHabits.length > 0) {
+  const now = Date.now();
+  if (!forceRefresh && cachedHabits && cachedHabits.length > 0 && (now - lastHabitFetchTime < 15000)) {
     return Promise.resolve({ habits: cachedHabits, rawData: cachedHabitsRaw, isObjectWrapper: isObjectWrapperHabits });
   }
-  if (!forceRefresh && habitsFetchPromise) {
+  if (habitsFetchPromise) {
     return habitsFetchPromise;
   }
   habitsFetchPromise = (async () => {
@@ -195,7 +204,8 @@ function getHabitsState(forceRefresh = false) {
         cachedHabits = habits;
         cachedHabitsRaw = rawData;
         isObjectWrapperHabits = isObjectWrapper;
-        try { localStorage.setItem('leo_cached_habits', JSON.stringify({ habits, rawData, isObjectWrapper })); } catch (e) {}
+        lastHabitFetchTime = Date.now();
+        try { localStorage.setItem('leo_cached_habits', JSON.stringify({ habits, rawData, isObjectWrapper, time: Date.now() })); } catch (e) {}
       }
       return { habits: cachedHabits || habits, rawData, isObjectWrapper };
     } catch (e) {
@@ -1363,18 +1373,24 @@ chatForm.addEventListener('submit', async (e) => {
 
   // Render user message instantly
   appendMessage('user', text);
-  // Ensure habit cache is populated
-  if (!cachedHabits || cachedHabits.length === 0 || habitsFetchPromise) {
-    const needIndicator = !cachedHabits || cachedHabits.length === 0;
+  chatInput.value = '';
+
+  const clean = text.trim().toLowerCase().replace(/[?!.,]/g, '');
+  const isHabitQuery = /\b(what|show|list|tell|which|status|overview|summary|today|pending|left|remaining|done|completed|did|streak|stats)\b/i.test(clean);
+  const isInvestQuery = /\b(networth|net\s*worth|portfolio|stocks?|etfs?|mutual\s*funds?|gold|silver|epf|ppf|nps|invested|holdings)\b/i.test(clean);
+
+  // Ensure habit cache is populated and fresh
+  if (!cachedHabits || cachedHabits.length === 0 || habitsFetchPromise || (isHabitQuery && Date.now() - lastHabitFetchTime > 10000)) {
+    const needIndicator = !cachedHabits || cachedHabits.length === 0 || (isHabitQuery && Date.now() - lastHabitFetchTime > 10000);
     if (needIndicator) showTypingIndicator();
-    await getHabitsState();
+    await getHabitsState(isHabitQuery);
     if (needIndicator) hideTypingIndicator();
   }
-  // Ensure invest cache is populated
-  if (!cachedInvestState || !cachedInvestState.records || Object.keys(cachedInvestState.records).length === 0 || investFetchPromise) {
-    const needIndicator = !cachedInvestState || !cachedInvestState.records;
+  // Ensure invest cache is populated and fresh
+  if (!cachedInvestState || !cachedInvestState.records || Object.keys(cachedInvestState.records).length === 0 || investFetchPromise || (isInvestQuery && Date.now() - lastInvestFetchTime > 20000)) {
+    const needIndicator = !cachedInvestState || !cachedInvestState.records || (isInvestQuery && Date.now() - lastInvestFetchTime > 20000);
     if (needIndicator) showTypingIndicator();
-    await fetchInvestCloudState();
+    await fetchInvestCloudState(isInvestQuery);
     if (needIndicator) hideTypingIndicator();
   }
   
@@ -1512,8 +1528,8 @@ if (quickChipsContainer) {
 // Initialization
 
 window.addEventListener('DOMContentLoaded', async () => {
-  // Pre-load data in background for instant responsiveness
-  getHabitsState();
-  fetchInvestCloudState();
+  // Pre-load fresh data in background for instant responsiveness
+  getHabitsState(true);
+  fetchInvestCloudState(true);
   checkReminders();
 });
