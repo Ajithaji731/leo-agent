@@ -1015,10 +1015,55 @@ function getIndexedHabitsSummary(targetDate) {
   return { date: todayISO, completed, pending, isEmpty: false };
 }
 
+function extractTargetDate(text) {
+  const clean = text.toLowerCase();
+  const today = new Date();
+  
+  if (/\b(day before yesterday)\b/i.test(clean)) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 2);
+    return { date: getLocalDateISO(d), label: 'day before yesterday', isToday: false };
+  }
+  if (/\b(yesterday|yday|prev day|previous day)\b/i.test(clean)) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 1);
+    return { date: getLocalDateISO(d), label: 'yesterday', isToday: false };
+  }
+  // Check ISO format YYYY-MM-DD
+  const isoMatch = clean.match(/\b(20\d\d-\d\d-\d\d)\b/);
+  if (isoMatch) {
+    const isToday = isoMatch[1] === getLocalDateISO();
+    return { date: isoMatch[1], label: isoMatch[1], isToday };
+  }
+
+  // Check "7th sept", "sep 7", "september 7", etc.
+  const monthNames = {
+    jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+    january: '01', february: '02', march: '03', april: '04', june: '06',
+    july: '07', august: '08', september: '09', october: '10', november: '11', december: '12'
+  };
+  const datePattern = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)(?:\s+(20\d\d))?\b/i;
+  const match1 = clean.match(datePattern);
+  if (match1) {
+    const day = match1[1].padStart(2, '0');
+    const mStr = match1[2].toLowerCase().replace('sept', 'sep');
+    const month = monthNames[mStr] || '01';
+    const year = match1[3] || today.getFullYear().toString();
+    const targetISO = `${year}-${month}-${day}`;
+    return { date: targetISO, label: `${match1[1]} ${match1[2]}`, isToday: targetISO === getLocalDateISO() };
+  }
+
+  return { date: getLocalDateISO(today), label: 'today', isToday: true };
+}
+
 function tryFastHabitIntent(userText) {
   const raw = userText.trim().toLowerCase();
   const clean = raw.replace(/[?!.,]/g, '').trim();
-  const todayISO = getLocalDateISO();
+  const targetDateInfo = extractTargetDate(clean);
+  const targetISO = targetDateInfo.date;
+  const dateLabel = targetDateInfo.label;
+  const isToday = targetDateInfo.isToday;
 
   // 1. List All Configured Habits Query
   if (/\b(what\s*habits|list\s*habits|show\s*habits|my\s*habits|all\s*habits|habit\s*list)\b/i.test(clean)) {
@@ -1087,34 +1132,48 @@ function tryFastHabitIntent(userText) {
     }
   }
 
-  // 2. Fast Query: Completed habits today
-  if (/\b(what\s*did\s*i\s*do|what\s*i\s*did|what\s*all\s*i\s*did|what\s*have\s*i\s*done|things\s*i\s*have\s*done|what\s*is\s*done|what\s*is\s*completed|habits\s*today|today\s*status|completed\s*today|done\s*today)\b/i.test(clean) ||
-      (/^(what|show|list|tell|which).*(did|done|completed|finished|have done).*(today|habits?)?/i.test(clean))) {
-    const summary = getIndexedHabitsSummary(todayISO);
+  // 2. Fast Query: Completed habits on target date (today, yesterday, specific date)
+  if (/\b(what\s*did\s*i\s*do|what\s*i\s*did|what\s*all\s*i\s*did|what\s*have\s*i\s*done|things\s*i\s*have\s*done|what\s*is\s*done|what\s*is\s*completed|completed\s*(today|yesterday)|done\s*(today|yesterday)|habits\s*(today|yesterday)|(today|yesterday)\s*status)\b/i.test(clean) ||
+      (/^(what|show|list|tell|which).*(did|done|completed|finished|have done).*(today|yesterday|habits?)?/i.test(clean))) {
+    const summary = getIndexedHabitsSummary(targetISO);
     if (summary.isEmpty) {
       return null;
     }
+    const headerTitle = isToday
+      ? `📅 **Habits you completed today (${targetISO}):**`
+      : `📅 **Habits you completed ${dateLabel} (${targetISO}):**`;
+
     if (summary.completed.length === 0) {
       const pendingList = summary.pending.length > 0 ? summary.pending.map(h => `- ${h}`).join('\n') : 'No active habits found.';
-      return `📅 **Status for Today (${todayISO}):**\n\nNo habits completed yet today. Let me know when you finish any! ☀️\n\n**Pending:**\n${pendingList}`;
+      const noDoneMsg = isToday
+        ? `No habits completed yet today. Let me know when you finish any! ☀️`
+        : `No habits were completed on ${targetISO}.`;
+      const pendingHeading = isToday ? '**Pending:**' : '**Missed / Not Done:**';
+      return `📅 **Status for ${dateLabel} (${targetISO}):**\n\n${noDoneMsg}\n\n${pendingHeading}\n${pendingList}`;
     }
     const completedList = summary.completed.map(h => `- **${h}** ✅`).join('\n');
-    const pendingList = summary.pending.length > 0 ? summary.pending.map(h => `- ${h}`).join('\n') : 'None! All done 🎉';
-    return `📅 **Habits you completed today (${todayISO}):**\n\n${completedList}\n\n**Pending:**\n${pendingList}`;
+    const pendingHeading = isToday ? '**Pending:**' : '**Missed / Not Done:**';
+    const pendingList = summary.pending.length > 0 ? summary.pending.map(h => `- ${h}`).join('\n') : (isToday ? 'None! All done 🎉' : 'None! Completed all 🌟');
+    return `${headerTitle}\n\n${completedList}\n\n${pendingHeading}\n${pendingList}`;
   }
 
-  // 3. Fast Query: Pending habits today
-  if (/\b(what\s*is\s*pending|pending\s*habits|what\s*is\s*left|whats\s*left|remaining\s*habits|not\s*done\s*today)\b/i.test(clean) ||
-      (/^(what|show|list|which).*(pending|left|remaining|not\s*done).*(today|habits?)?/i.test(clean))) {
-    const summary = getIndexedHabitsSummary(todayISO);
+  // 3. Fast Query: Pending habits on target date
+  if (/\b(what\s*is\s*pending|pending\s*habits|what\s*is\s*left|whats\s*left|remaining\s*habits|not\s*done|missed\s*habits)\b/i.test(clean) ||
+      (/^(what|show|list|which).*(pending|left|remaining|not\s*done|missed).*(today|yesterday|habits?)?/i.test(clean))) {
+    const summary = getIndexedHabitsSummary(targetISO);
     if (summary.isEmpty) {
       return null;
     }
     if (summary.pending.length === 0) {
-      return `🎉 **Amazing!** You have completed all your habits for today (${todayISO})! ☀️`;
+      return isToday
+        ? `🎉 **Amazing!** You have completed all your habits for today (${targetISO})! ☀️`
+        : `🎉 **All habits were completed on ${targetISO}!** 🌟`;
     }
     const pendingList = summary.pending.map(h => `- **${h}** ⏳`).join('\n');
-    return `⏳ **Pending habits for today (${todayISO}):**\n\n${pendingList}`;
+    const pendingHeading = isToday
+      ? `⏳ **Pending habits for today (${targetISO}):**`
+      : `⏳ **Pending / Missed habits for ${dateLabel} (${targetISO}):**`;
+    return `${pendingHeading}\n\n${pendingList}`;
   }
 
   // 4. Create / Delete Habits Directly
@@ -1155,7 +1214,7 @@ function tryFastHabitIntent(userText) {
         if (regex.test(clean)) {
           detectedHabits.push(h.name);
         } else {
-          // Check words inside multi-word habits (e.g. "finger" in "Finger nail", "hindi" in "Hindi Language")
+          // Check words inside multi-word habits
           const words = h.name.toLowerCase().split(/\s+/);
           for (const w of words) {
             if (w.length > 2 && new RegExp(`\\b${w}\\b`, 'i').test(clean)) {
@@ -1172,7 +1231,7 @@ function tryFastHabitIntent(userText) {
         isFastAction: true,
         action: isUnmark ? 'uncheck' : 'check',
         habit_ids: detectedHabits,
-        date: todayISO
+        date: targetISO
       };
     }
   }
