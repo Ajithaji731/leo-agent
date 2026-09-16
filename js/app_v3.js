@@ -130,10 +130,7 @@ function fetchInvestCloudState(force = false) {
   }
   investFetchPromise = (async () => {
     try {
-      const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}&nocache=${Math.random()}`, {
-        cache: "no-store",
-        headers: { "Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache" }
-      });
+      const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
       const data = await res.json();
       let stateObj = data.records ? data : (data.state && data.state.records ? data.state : null);
       if (stateObj && stateObj.records && Object.keys(stateObj.records).length > 0) {
@@ -174,10 +171,7 @@ function getHabitsState(forceRefresh = false) {
   }
   habitsFetchPromise = (async () => {
     try {
-      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}&nocache=${Math.random()}`, {
-        cache: "no-store",
-        headers: { "Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache" }
-      });
+      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
       let rawData = await getRes.json();
       let habits = [];
       let isObjectWrapper = false;
