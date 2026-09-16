@@ -110,20 +110,19 @@ const DEFAULT_INVEST_ASSETS = [
   { id: 'goal_digi_gold', name: 'Digi Gold', category: 'Gold Investment', sector: 'Gold Investments' }
 ];
 
-let cachedInvestState = null;
-let lastInvestFetchTime = 0;
+// Purge stale local caches to guarantee 100% live cloud data
 try {
-  const savedInvest = localStorage.getItem('leo_cached_invest_state');
-  if (savedInvest) {
-    const parsed = JSON.parse(savedInvest);
-    if (parsed && parsed.records) cachedInvestState = parsed;
-  }
+  localStorage.removeItem('leo_cached_habits');
+  localStorage.removeItem('leo_cached_invest_state');
 } catch (e) {}
 
+let cachedInvestState = null;
+let lastInvestFetchTime = 0;
 let investFetchPromise = null;
+
 function fetchInvestCloudState(force = false) {
   const now = Date.now();
-  if (!force && cachedInvestState && cachedInvestState.records && Object.keys(cachedInvestState.records).length > 0 && (now - lastInvestFetchTime < 30000)) {
+  if (!force && cachedInvestState && cachedInvestState.records && Object.keys(cachedInvestState.records).length > 0 && (now - lastInvestFetchTime < 10000)) {
     return Promise.resolve(cachedInvestState);
   }
   if (investFetchPromise) {
@@ -131,14 +130,16 @@ function fetchInvestCloudState(force = false) {
   }
   investFetchPromise = (async () => {
     try {
-      const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
+      const res = await fetch(`${INVEST_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}&nocache=${Math.random()}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache" }
+      });
       const data = await res.json();
       let stateObj = data.records ? data : (data.state && data.state.records ? data.state : null);
       if (stateObj && stateObj.records && Object.keys(stateObj.records).length > 0) {
         if (!stateObj.assets || stateObj.assets.length === 0) stateObj.assets = DEFAULT_INVEST_ASSETS;
         cachedInvestState = stateObj;
         lastInvestFetchTime = Date.now();
-        try { localStorage.setItem('leo_cached_invest_state', JSON.stringify(stateObj)); } catch (e) {}
         return stateObj;
       }
     } catch (e) {
@@ -161,26 +162,11 @@ let cachedHabits = null;
 let cachedHabitsRaw = null;
 let isObjectWrapperHabits = false;
 let lastHabitFetchTime = 0;
-try {
-  const savedHabits = localStorage.getItem('leo_cached_habits');
-  if (savedHabits) {
-    const parsed = JSON.parse(savedHabits);
-    if (parsed && parsed.habits && parsed.habits.length > 0) {
-      cachedHabits = parsed.habits;
-      cachedHabitsRaw = parsed.rawData;
-      isObjectWrapperHabits = parsed.isObjectWrapper || false;
-      lastHabitFetchTime = parsed.time || 0;
-    } else if (Array.isArray(parsed) && parsed.length > 0) {
-      cachedHabits = parsed;
-      cachedHabitsRaw = parsed;
-    }
-  }
-} catch (e) {}
-
 let habitsFetchPromise = null;
+
 function getHabitsState(forceRefresh = false) {
   const now = Date.now();
-  if (!forceRefresh && cachedHabits && cachedHabits.length > 0 && (now - lastHabitFetchTime < 15000)) {
+  if (!forceRefresh && cachedHabits && cachedHabits.length > 0 && (now - lastHabitFetchTime < 5000)) {
     return Promise.resolve({ habits: cachedHabits, rawData: cachedHabitsRaw, isObjectWrapper: isObjectWrapperHabits });
   }
   if (habitsFetchPromise) {
@@ -188,7 +174,10 @@ function getHabitsState(forceRefresh = false) {
   }
   habitsFetchPromise = (async () => {
     try {
-      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}`);
+      const getRes = await fetch(`${HABIT_GAS_URL}?userId=${SECURE_ID}&t=${Date.now()}&nocache=${Math.random()}`, {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache" }
+      });
       let rawData = await getRes.json();
       let habits = [];
       let isObjectWrapper = false;
@@ -205,7 +194,6 @@ function getHabitsState(forceRefresh = false) {
         cachedHabitsRaw = rawData;
         isObjectWrapperHabits = isObjectWrapper;
         lastHabitFetchTime = Date.now();
-        try { localStorage.setItem('leo_cached_habits', JSON.stringify({ habits, rawData, isObjectWrapper, time: Date.now() })); } catch (e) {}
       }
       return { habits: cachedHabits || habits, rawData, isObjectWrapper };
     } catch (e) {
