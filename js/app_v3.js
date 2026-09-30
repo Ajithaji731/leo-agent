@@ -218,54 +218,105 @@ async function saveInvestCloudState(stateObj) {
 }
 
 function matchAsset(assetsList, identifier) {
-  if (!identifier) return null;
-  const clean = identifier.toLowerCase().replace(/[^a-z0-9]/g, '');
-  // Exact ID
-  let match = assetsList.find(a => a.id.toLowerCase() === identifier.toLowerCase());
+  if (!identifier || !Array.isArray(assetsList)) return null;
+  const raw = identifier.toLowerCase().trim();
+  const clean = raw.replace(/[^a-z0-9]/g, '');
+  if (!clean) return null;
+
+  // 1. Exact ID match
+  let match = assetsList.find(a => a.id && (a.id.toLowerCase() === raw || a.id.toLowerCase().replace(/[^a-z0-9]/g, '') === clean));
   if (match) return match;
-  
-  // Exact name or clean match
-  match = assetsList.find(a => a.name.toLowerCase() === identifier.toLowerCase() || a.name.toLowerCase().replace(/[^a-z0-9]/g, '') === clean);
+
+  // 2. Exact Name match
+  match = assetsList.find(a => a.name && (a.name.toLowerCase() === raw || a.name.toLowerCase().replace(/[^a-z0-9]/g, '') === clean));
   if (match) return match;
-  
-  // Partial / alias match
-  const aliases = {
-    'paragparikh': 'mf_parag_parikh',
-    'flexicap': 'mf_parag_parikh',
-    'icicin50': 'mf_icici_n50',
-    'nifty50': 'mf_icici_n50',
-    'bandhansmall': 'mf_bandhan_small',
-    'smallcap': 'mf_bandhan_small',
-    'emergencyfund': 'goal_emergency_fund',
-    'emergency': 'goal_emergency_fund',
-    'carfund': 'goal_car_fund',
-    'car': 'goal_car_fund',
-    'digigold': 'goal_digi_gold',
-    'goldietf': 'st_goldietf',
-    'gold': 'st_goldietf',
-    'tatsilv': 'st_tatsilv',
-    'silver': 'st_tatsilv',
-    'epf': 'epf_balance',
-    'ppf': 'ppf_balance',
-    'npstier1': 'nps_tier1',
-    'npstier2': 'nps_tier2',
-    'nps': 'nps_tier1',
-    'hdfc': 'st_hdfc',
-    'icicibank': 'st_icici',
-    'bpcl': 'st_bpcl',
-    'tatacapital': 'st_tata_cap',
-    'metalietf': 'st_metalietf',
-    'nipponit': 'st_nippon_it',
-    'southbank': 'st_southbank'
-  };
-  
-  for (const [k, targetId] of Object.entries(aliases)) {
-    if (clean.includes(k) || k.includes(clean)) {
-      return assetsList.find(a => a.id === targetId);
-    }
+
+  // 3. Smart Priority Disambiguation
+  // Digi Gold vs Gold ETF
+  if (clean.includes('digigold') || (clean.includes('digi') && clean.includes('gold')) || clean.includes('digitalgold')) {
+    return assetsList.find(a => a.id === 'goal_digi_gold') || null;
   }
-  
-  return assetsList.find(a => a.name.toLowerCase().includes(identifier.toLowerCase()) || identifier.toLowerCase().includes(a.name.toLowerCase()));
+  // ICICI Nifty 50 Index Fund vs ICICI Bank Stock
+  if (clean.includes('icici') && (clean.includes('nifty') || clean.includes('50') || clean.includes('n50') || clean.includes('fund') || clean.includes('index') || clean.includes('mf'))) {
+    return assetsList.find(a => a.id === 'mf_icici_n50') || null;
+  }
+  if (clean.includes('nifty50') || clean === 'nifty' || clean.includes('n50')) {
+    return assetsList.find(a => a.id === 'mf_icici_n50') || null;
+  }
+  // Parag Parikh (including common misspellings like pariek, ppfas)
+  if (clean.includes('parag') || clean.includes('parikh') || clean.includes('pariek') || clean.includes('ppfas') || clean.includes('flexicap')) {
+    return assetsList.find(a => a.id === 'mf_parag_parikh') || null;
+  }
+  // Bandhan Small Cap (including misspellings like bandan, smallcap)
+  if (clean.includes('bandhan') || clean.includes('bandan') || clean.includes('smallcap')) {
+    return assetsList.find(a => a.id === 'mf_bandhan_small') || null;
+  }
+  // Emergency Fund
+  if (clean.includes('emergency') || clean.includes('emergencysavings') || clean === 'emfund') {
+    return assetsList.find(a => a.id === 'goal_emergency_fund') || null;
+  }
+  // Goals / Car Fund (mapped to Car Fund / Goals)
+  if (clean === 'goals' || clean === 'goal' || clean.includes('carfund') || clean === 'car' || clean.includes('goalfund')) {
+    return assetsList.find(a => a.id === 'goal_car_fund') || null;
+  }
+  // EPF / PF
+  if (clean.includes('epf') || clean === 'pf' || clean.includes('pfbalance') || clean.includes('providentfund')) {
+    return assetsList.find(a => a.id === 'epf_balance') || null;
+  }
+  // PPF
+  if (clean.includes('ppf') || clean.includes('publicprovident')) {
+    return assetsList.find(a => a.id === 'ppf_balance') || null;
+  }
+  // NPS
+  if (clean.includes('nps')) {
+    if (clean.includes('tier2') || clean.includes('t2')) {
+      return assetsList.find(a => a.id === 'nps_tier2') || null;
+    }
+    return assetsList.find(a => a.id === 'nps_tier1') || null;
+  }
+  // Tata Capital
+  if (clean.includes('tatacap') || clean.includes('tatacapital')) {
+    return assetsList.find(a => a.id === 'st_tata_cap') || null;
+  }
+  // Silver ETF
+  if (clean.includes('silver') || clean.includes('tatsilv')) {
+    return assetsList.find(a => a.id === 'st_tatsilv') || null;
+  }
+  // Gold ETF
+  if (clean.includes('goldietf') || clean.includes('goldetf') || clean === 'gold') {
+    return assetsList.find(a => a.id === 'st_goldietf') || null;
+  }
+  // Metal ETF
+  if (clean.includes('metal') || clean.includes('metalietf')) {
+    return assetsList.find(a => a.id === 'st_metalietf') || null;
+  }
+  // Nippon IT ETF
+  if (clean.includes('nippon') || clean.includes('nipponit')) {
+    return assetsList.find(a => a.id === 'st_nippon_it') || null;
+  }
+  // South Indian Bank
+  if (clean.includes('southbank') || clean.includes('southindian')) {
+    return assetsList.find(a => a.id === 'st_southbank') || null;
+  }
+  // HDFC Bank
+  if (clean.includes('hdfc')) {
+    return assetsList.find(a => a.id === 'st_hdfc') || null;
+  }
+  // BPCL
+  if (clean.includes('bpcl')) {
+    return assetsList.find(a => a.id === 'st_bpcl') || null;
+  }
+  // ICICI Bank
+  if (clean.includes('icici')) {
+    return assetsList.find(a => a.id === 'st_icici') || null;
+  }
+
+  // 4. Broad Substring Match
+  return assetsList.find(a => {
+    if (!a.name) return false;
+    const aClean = a.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return aClean.includes(clean) || clean.includes(aClean);
+  }) || null;
 }
 
 function matchHabit(habitsList, identifier) {
@@ -1224,16 +1275,36 @@ function tryFastHabitIntent(userText) {
 function tryFastInvestQuery(userText, investState) {
   const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '');
   if (!investState || !investState.records) return null;
+
+  // If user is adding/updating amounts (e.g. "10000 to Goals", "for october - 10000 to..."), never treat as query
+  if (/\b\d{3,}\b|\b\d+k\b|₹\d+/i.test(clean) && /\b(to|in|into|for|balance|add|invest|put|set|update|goals?|emergency|gold|ppf|epf|nps)\b/i.test(clean)) {
+    return null;
+  }
   
+  // Extract target month if specified in query
+  let targetMonth = null;
+  const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sept', 'sep', 'oct', 'nov', 'dec'];
+  for (const m of monthNames) {
+    if (new RegExp('\\b' + m + '\\b', 'i').test(clean)) {
+      targetMonth = normalizeMonth(m);
+      break;
+    }
+  }
+  const yyyymmMatch = clean.match(/\b(20\d\d-\d\d)\b/);
+  if (yyyymmMatch) targetMonth = yyyymmMatch[1];
+
   const months = Object.keys(investState.records).sort();
   if (months.length === 0) return null;
-  const targetMonth = months[months.length - 1];
+  if (!targetMonth) {
+    targetMonth = months[months.length - 1];
+  }
+  
   const monthData = investState.records[targetMonth] || {};
   const assets = investState.assets || DEFAULT_INVEST_ASSETS;
   
   // 1. Total Net Worth / Total Invested / Portfolio Summary
   if (/\b(total\s*net\s*worth|net\s*worth|networth|invested\s*amount|total\s*invested|total\s*investment|total\s*portfolio|portfolio\s*overview|portfolio\s*summary|all\s*investments|list\s*all\s*investments|my\s*holdings)\b/i.test(clean) ||
-      (/\b(total|how much|what)\b/i.test(clean) && /\b(networth|net\s*worth|invested|investments?|portfolio|total)\b/i.test(clean) && !/\b(put|add|added|set)\b/i.test(clean))) {
+      (/\b(total|how much|what)\b/i.test(clean) && /\b(networth|net\s*worth|invested|investments?|portfolio|total)\b/i.test(clean))) {
     let totalNetWorth = 0;
     let totalCore = 0;
     let categoryTotals = {};
@@ -1252,7 +1323,7 @@ function tryFastInvestQuery(userText, investState) {
   }
 
   // 2. Stocks / ETFs Category
-  if (/\b(stocks?|etfs?|shares?|equit(y|ies))\b/i.test(clean) && !/\b(mf|mutual|fund|put|add|added|set)\b/i.test(clean)) {
+  if (/\b(stocks?|etfs?|shares?|equit(y|ies))\b/i.test(clean) && !/\b(mf|mutual|fund)\b/i.test(clean)) {
     let totalStocks = 0;
     let list = [];
     assets.filter(a => a.category === 'Stocks/ETFs').forEach(a => {
@@ -1266,7 +1337,7 @@ function tryFastInvestQuery(userText, investState) {
   }
 
   // 3. Mutual Funds Category
-  if (/\b(mutual\s*funds?|mfs?)\b/i.test(clean) && !/\b(put|add|added|set)\b/i.test(clean)) {
+  if (/\b(mutual\s*funds?|mfs?)\b/i.test(clean)) {
     let totalMF = 0;
     let list = [];
     assets.filter(a => a.category === 'Mutual Funds').forEach(a => {
@@ -1280,7 +1351,7 @@ function tryFastInvestQuery(userText, investState) {
   }
 
   // 4. Gold / Silver / Commodities
-  if (/\b(gold|silver|digi\s*gold|commodit(y|ies))\b/i.test(clean) && !/\b(parag|hdfc|icici|tata|put|add|added|set)\b/i.test(clean)) {
+  if (/\b(gold|silver|digi\s*gold|commodit(y|ies))\b/i.test(clean) && !/\b(parag|hdfc|icici|tata)\b/i.test(clean)) {
     let totalGold = 0;
     let list = [];
     assets.filter(a => a.category === 'Gold Investment' || (a.sector && (a.sector.includes('Gold') || a.sector.includes('Silver')))).forEach(a => {
@@ -1293,8 +1364,11 @@ function tryFastInvestQuery(userText, investState) {
     return `🪙 **Gold & Silver Holdings (${targetMonth}):**\n\n**Total:** ₹${totalGold.toLocaleString('en-IN')}\n\n${list.join('\n') || 'No gold/silver records logged.'}`;
   }
 
-  // 5. Emergency Fund & Goals
-  if (/\b(emergency\s*fund|emergency|goals?|car\s*fund)\b/i.test(clean) && !/\b(put|add|added|set)\b/i.test(clean)) {
+  // 5. Emergency Fund & Goals (Strictly only queries or chip clicks)
+  const isGoalQuery = clean === 'emergency fund' || clean === 'goals' || clean === 'goal' || clean === 'car fund' ||
+    (/\b(emergency\s*fund|emergency|goals?|car\s*fund)\b/i.test(clean) && /\b(how much|what is|what's|balance|show|tell|check|status|overview|summary)\b/i.test(clean));
+
+  if (isGoalQuery) {
     let list = [];
     assets.filter(a => a.category === 'Emergency Fund' || a.category === 'Goals').forEach(a => {
       const val = (monthData[a.id] && monthData[a.id].invested) || 0;
@@ -1303,9 +1377,8 @@ function tryFastInvestQuery(userText, investState) {
     return `🛡️ **Emergency & Goal Funds (${targetMonth}):**\n\n${list.join('\n')}`;
   }
 
-  // 6. Any Individual Asset Query (e.g. "how much i have in digi gold", "tata capital balance", "what is in ppf", "gold")
-  const isQuery = /\b(how much|what is|what's|balance|total|value|amount|show|tell|check|holding|funds?)\b/i.test(clean) 
-    && !/\b(put|add|added|invest|invested|saved|logged|bought|deposit|set)\b/i.test(clean);
+  // 6. Any Individual Asset Query (e.g. "how much i have in digi gold", "tata capital balance", "what is in ppf")
+  const isQuery = /\b(how much|what is|what's|balance|total|value|amount|show|tell|check|holding|funds?)\b/i.test(clean);
 
   if (isQuery) {
     for (const asset of assets) {
@@ -1328,12 +1401,10 @@ function tryFastInvestQuery(userText, investState) {
 function tryFastInvestLog(userText, investState) {
   const clean = userText.trim().toLowerCase();
   
-  // Must contain an investment action keyword
-  const isAddAction = /\b(add|added|invest|invested|put|saved|logged|deposit|deposited|bought)\b/i.test(clean);
-  const isSetAction = /\b(set|updated|update)\b/i.test(clean);
-  if (!isAddAction && !isSetAction) return null;
-  
-  // Extract month (supports September, October, Nov, 2026-09, etc.)
+  // Guard against habit logs or questions
+  if (/\b(how much|what is|what's|did i|have i|list habits|what all i did)\b/i.test(clean)) return null;
+
+  // Extract month (supports October, for October, Oct 2026, 2026-10, etc.)
   let targetMonth = null;
   const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sept', 'sep', 'oct', 'nov', 'dec'];
   for (const m of monthNames) {
@@ -1342,36 +1413,53 @@ function tryFastInvestLog(userText, investState) {
       break;
     }
   }
+  const yyyymmMatch = clean.match(/\b(20\d\d-\d\d)\b/);
+  if (yyyymmMatch) targetMonth = yyyymmMatch[1];
+
   if (!targetMonth) {
     targetMonth = normalizeMonth(null); // defaults to current month
   }
 
-  // Parse amount and asset items
+  const isSetAction = /\b(set|replace)\b/i.test(clean);
   const items = [];
   const assets = (investState && investState.assets) || DEFAULT_INVEST_ASSETS;
-  const monthRegex = new RegExp('\\b(' + monthNames.join('|') + '|for|in|to|into|month|added|add|invested|invest|put|saved|logged|set|deposit)\\b', 'gi');
+  const filterWordsRegex = new RegExp('\\b(' + monthNames.join('|') + '|for|in|to|into|month|added|add|invested|invest|put|saved|logged|set|deposit|deposited|updating|update|balance|fund|funds)\\b', 'gi');
 
-  // Split clauses by 'and', ',', '&'
-  const parts = clean.split(/\band\b|,|&|\+/i);
+  // Split clauses by commas, semicolons, newlines, 'and', '&', '+'
+  const parts = clean.split(/(?:\band\b|[,;&\n\r]+)/i);
   for (const part of parts) {
-    const numMatch = part.match(/(?:₹|rs\.?\s*)?(\d+(?:,\d+)*(?:\.\d+)?)\s*(k|lakh|lac)?/i);
+    const trimmedPart = part.trim();
+    if (!trimmedPart) continue;
+
+    const numMatch = trimmedPart.match(/(?:₹|rs\.?\s*)?(\d+(?:,\d+)*(?:\.\d+)?)\s*(k|lakh|lac|cr)?/i);
     if (numMatch) {
       let rawVal = parseFloat(numMatch[1].replace(/,/g, ''));
       if (numMatch[2] && numMatch[2].toLowerCase() === 'k') rawVal *= 1000;
       if (numMatch[2] && (numMatch[2].toLowerCase() === 'lakh' || numMatch[2].toLowerCase() === 'lac')) rawVal *= 100000;
+      if (numMatch[2] && numMatch[2].toLowerCase() === 'cr') rawVal *= 10000000;
 
-      const assetCandidate = part.replace(numMatch[0], '')
-        .replace(monthRegex, '')
+      // Extract candidate asset string
+      const assetCandidate = trimmedPart
+        .replace(numMatch[0], ' ')
+        .replace(filterWordsRegex, ' ')
+        .replace(/[^a-z0-9\s]/g, ' ')
         .trim();
 
-      const matchedAsset = matchAsset(assets, assetCandidate);
-      if (matchedAsset && rawVal > 0) {
-        items.push({
-          asset_id: matchedAsset.id,
-          name: matchedAsset.name,
-          amount: rawVal,
-          mode: isSetAction ? 'set' : 'add'
-        });
+      if (assetCandidate.length >= 2 && rawVal > 0) {
+        const matchedAsset = matchAsset(assets, assetCandidate);
+        if (matchedAsset) {
+          const existing = items.find(it => it.asset_id === matchedAsset.id);
+          if (existing) {
+            existing.amount += rawVal;
+          } else {
+            items.push({
+              asset_id: matchedAsset.id,
+              name: matchedAsset.name,
+              amount: rawVal,
+              mode: isSetAction ? 'set' : 'add'
+            });
+          }
+        }
       }
     }
   }
