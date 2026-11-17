@@ -1137,15 +1137,20 @@ function extractTargetDate(text) {
     return { date: isoMatch[1], label: isoMatch[1], isToday };
   }
 
-  // Check "7th sept", "sep 7", "september 7", etc.
+  // Check "7th sept", "sep 7", "nov 1", "nov 2", "september 7", etc.
   const monthNames = {
     jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
-    jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+    jul: '07', aug: '08', sep: '09', sept: '09', oct: '10', nov: '11', dec: '12',
     january: '01', february: '02', march: '03', april: '04', june: '06',
     july: '07', august: '08', september: '09', october: '10', november: '11', december: '12'
   };
-  const datePattern = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)(?:\s+(20\d\d))?\b/i;
-  const match1 = clean.match(datePattern);
+  const mList = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december';
+  const datePattern1 = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${mList})(?:\\s+(20\\d\\d))?\\b`, 'i');
+  const datePattern2 = new RegExp(`\\b(${mList})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+(20\\d\\d))?\\b`, 'i');
+  
+  const match1 = clean.match(datePattern1);
+  const match2 = clean.match(datePattern2);
+
   if (match1) {
     const day = match1[1].padStart(2, '0');
     const mStr = match1[2].toLowerCase().replace('sept', 'sep');
@@ -1153,6 +1158,13 @@ function extractTargetDate(text) {
     const year = match1[3] || today.getFullYear().toString();
     const targetISO = `${year}-${month}-${day}`;
     return { date: targetISO, label: `${match1[1]} ${match1[2]}`, isToday: targetISO === getLocalDateISO() };
+  } else if (match2) {
+    const day = match2[2].padStart(2, '0');
+    const mStr = match2[1].toLowerCase().replace('sept', 'sep');
+    const month = monthNames[mStr] || '01';
+    const year = match2[3] || today.getFullYear().toString();
+    const targetISO = `${year}-${month}-${day}`;
+    return { date: targetISO, label: `${match2[1]} ${match2[2]}`, isToday: targetISO === getLocalDateISO() };
   }
 
   return { date: getLocalDateISO(today), label: 'today', isToday: true };
