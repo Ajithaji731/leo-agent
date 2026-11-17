@@ -2,6 +2,7 @@
 const INVEST_GAS_URL = 'https://script.google.com/macros/s/AKfycbwggOUodVCdLua57K3DVVIdmn8J12uZWClM47tlWz3xzOrkkI_cc62EeHazaVhrsHqT/exec';
 const AI_CHAT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzGKwN7SseLOsaQeOnql_3cmMqaM4u7gJdcoIXsCbhn104CqpaECzwV9U6PwidLas0y/exec';
 const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwTLJ5PSqaSlghakcqWW7s5-0GhBrC9KhUl5cUMfmwkkphNEiarrbEWYglYnnOcCXzo2w/exec';
+const EXPENSE_GAS_URL = 'https://script.google.com/macros/s/AKfycbyT64Ehwsk_hev8n_-G6fjX2Bt7NyFUTWc81BALw5phR14f2tkd_ZksyIANOmVqOoE/exec';
 const SECURE_ID = '2108'; // Hardcoded as requested
 
 // Global State
@@ -639,6 +640,38 @@ const groqTools = [
         required: []
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_expense",
+      description: "Log a daily expense with amount, description, category, and date.",
+      parameters: {
+        type: "object",
+        properties: {
+          amount: { type: "number", description: "Expense amount in Rupees (e.g. 20, 50, 150)" },
+          description: { type: "string", description: "Short description of expense (e.g. Tea, Auto, Lunch)" },
+          category: { type: "string", description: "Expense category (Food & Drinks, Transportation, Groceries, Bills & Utilities, Shopping, Other)" },
+          payment_mode: { type: "string", description: "Payment mode (UPI, Cash, Card)" },
+          date: { type: "string", description: "Target date in YYYY-MM-DD format (defaults to today)" }
+        },
+        required: ["amount", "description"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_expenses",
+      description: "Retrieve expense records for today or a specific date/month.",
+      parameters: {
+        type: "object",
+        properties: {
+          date: { type: "string", description: "Date YYYY-MM-DD or 'today' or 'yesterday'" },
+          month: { type: "string", description: "Month in YYYY-MM format" }
+        }
+      }
+    }
   }
 ];
 
@@ -826,6 +859,29 @@ async function executeToolCall(call) {
         return { status: "success", result: `Removed all records for month ${monthStr} alone. All other months remain completely safe and intact.` };
       }
     }
+    else if (call.name === "add_expense") {
+      const expDate = call.args.date || getLocalDateISO();
+      const exp = {
+        id: "exp_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        date: expDate,
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        month: expDate.substring(0, 7),
+        amount: Number(call.args.amount || 0),
+        description: call.args.description || "Expense",
+        category: call.args.category || inferExpenseCategory(call.args.description),
+        paymentMode: call.args.payment_mode || "UPI",
+        source: "AI Agent",
+        createdAt: new Date().toISOString()
+      };
+      logExpenseDirectly(exp);
+      showToast(`Logged ₹${exp.amount}`);
+      return { status: "success", result: `💸 **Logged Expense:** ₹${exp.amount} for **${exp.description}** (${exp.category}) for ${exp.date}. Saved to Expense Tracker!` };
+    }
+    else if (call.name === "get_expenses") {
+      const dateTarget = call.args.date === 'yesterday' ? getLocalDateISO(new Date(Date.now() - 86400000)) : (call.args.date || getLocalDateISO());
+      const summary = getIndexedExpensesSummary(dateTarget, call.args.month);
+      return JSON.stringify(summary);
+    }
   } catch (e) {
     showToast("Sync Failed: " + e.toString()); return { status: "error", message: e.toString() };
   }
@@ -854,6 +910,12 @@ Investments & Portfolio:
   Call 'manage_investments' with month: "2026-09" and investments list.
 - When user asks to remove/delete records for a specific month (e.g., "remove data of September" or "delete September records"):
   Call 'remove_investment_data' with month: "2026-09". Emphasize that only September was deleted and all other months are completely safe.
+
+Daily Expenses:
+- When user says they spent money, paid for something, or bought an item (e.g. "spent 20 for tea", "paid 50 for auto", "lunch 150", "petrol 300"):
+  Call 'add_expense' with amount, description, category, and date.
+- When user asks about their spending or expenses (e.g. "how much did I spend today?", "what are my expenses today?"):
+  Call 'get_expenses'.
 
 API Key Info:
 - Your Groq API key is active and valid until August 20, 2027. If asked, confirm this accurately.
@@ -953,6 +1015,12 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
             responses.push(toolResult.result);
           } else {
             responses.push(`Investment data removed successfully.`);
+          }
+        } else if (call.name === "add_expense") {
+          if (toolResult && toolResult.result) {
+            responses.push(toolResult.result);
+          } else {
+            responses.push(`Logged expense successfully! 💸`);
           }
         }
       }
@@ -1088,6 +1156,158 @@ function extractTargetDate(text) {
   }
 
   return { date: getLocalDateISO(today), label: 'today', isToday: true };
+}
+
+// ==========================================
+// --- Expense Tracking Helpers & Fast Intent ---
+// ==========================================
+
+const EXPENSE_CATEGORIES_MAP = {
+  "Food & Drinks": ["tea", "chai", "coffee", "breakfast", "lunch", "dinner", "snack", "snacks", "swiggy", "zomato", "restaurant", "cafe", "food", "eat", "biryani", "juice", "samosa", "maggie", "biscuit"],
+  "Transportation": ["auto", "cab", "uber", "ola", "metro", "bus", "train", "flight", "petrol", "diesel", "fuel", "parking", "toll", "rapido", "rickshaw"],
+  "Groceries": ["grocery", "groceries", "supermarket", "vegetables", "fruits", "milk", "bread", "eggs", "rice", "dal", "oil", "curd", "blinkit", "zepto", "instamart", "bigbasket"],
+  "Bills & Utilities": ["recharge", "wifi", "internet", "electricity", "water bill", "gas", "cylinder", "rent", "maintenance", "mobile recharge", "broadband"],
+  "Shopping": ["shopping", "amazon", "flipkart", "myntra", "clothes", "shoes", "shirt", "pant", "electronics", "gadget"],
+  "Entertainment": ["movie", "cinema", "netflix", "prime", "hotstar", "spotify", "youtube", "outing", "party"],
+  "Health & Medical": ["medicine", "medicines", "doctor", "hospital", "clinic", "pharmacy", "medical", "tablet", "tablets", "dental"],
+  "Other": []
+};
+
+function inferExpenseCategory(desc) {
+  if (!desc) return "Other";
+  const low = desc.toLowerCase();
+  for (const [cat, words] of Object.entries(EXPENSE_CATEGORIES_MAP)) {
+    for (const w of words) {
+      if (new RegExp(`\\b${w}\\b`, 'i').test(low)) return cat;
+    }
+  }
+  return "Other";
+}
+
+function getStoredExpenses() {
+  try {
+    const raw = localStorage.getItem("expense_tracker_data");
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function logExpenseDirectly(expense) {
+  try {
+    const list = getStoredExpenses();
+    list.unshift(expense);
+    localStorage.setItem("expense_tracker_data", JSON.stringify(list));
+    
+    // Background sync to Google Sheet
+    fetch(EXPENSE_GAS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "addExpense", expense: expense }),
+      keepalive: true
+    }).catch(err => console.warn("Expense GAS sync failed:", err));
+  } catch (e) {
+    console.error("Failed to log expense directly:", e);
+  }
+}
+
+function getIndexedExpensesSummary(dateTarget, monthTarget) {
+  const list = getStoredExpenses();
+  const todayISO = dateTarget || getLocalDateISO();
+  const filtered = list.filter(e => {
+    if (monthTarget) return e.month === monthTarget || (e.date && e.date.substring(0, 7) === monthTarget);
+    return e.date === todayISO;
+  });
+
+  const total = filtered.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  return {
+    date: todayISO,
+    month: monthTarget,
+    count: filtered.length,
+    total: total,
+    expenses: filtered
+  };
+}
+
+function tryFastExpenseIntent(userText) {
+  const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '').trim();
+
+  // 1. Expense Queries (e.g. "today expenses", "how much did i spend today", "expenses today", "my expenses")
+  const isExpQuery = /\b(spent\s*today|spend\s*today|today'?s?\s*expens|expens\s*today|total\s*spent|how\s*much.*spent|spending\s*today|my\s*expens)\b/i.test(clean) &&
+    !/\b(invest|invested|networth|stocks|mutual)\b/i.test(clean);
+
+  if (isExpQuery) {
+    const targetDateInfo = extractTargetDate(clean);
+    const summary = getIndexedExpensesSummary(targetDateInfo.date);
+    if (summary.count === 0) {
+      return {
+        isQuery: true,
+        reply: `🧾 **No expenses recorded for ${targetDateInfo.isToday ? 'today' : targetDateInfo.label} (${targetDateInfo.date}).**\n\n*You can log anytime by typing: "spent 20 for tea" or "paid 50 for auto"!* ☕`
+      };
+    }
+    const lines = summary.expenses.map(e => `- **${e.description}**: ₹${e.amount} *(${e.category})*`);
+    return {
+      isQuery: true,
+      reply: `🧾 **Expenses for ${targetDateInfo.isToday ? 'Today' : targetDateInfo.label} (${targetDateInfo.date}):**\n\n${lines.join('\n')}\n\n**Total:** ₹${summary.total.toLocaleString('en-IN')} 💸\n*Synced with your Expense Tracker!*`
+    };
+  }
+
+  // 2. Expense Logging (e.g. "spent 200 for today", "spend 10 now", "spent 500", "spent 100", "paid 50", "200")
+  const hasSpendVerb = /\b(spent|spend|paid|pay|bought|chai|tea|coffee|lunch|dinner|auto|uber|ola|petrol|swiggy|zomato)\b/i.test(clean) || /^(spent|spend|paid|pay)\b/i.test(clean);
+  const numMatch = clean.match(/(?:(?:rs\.?|₹|inr)\s*(\d+(?:\.\d+)?))|(?:(?:spent|spend|paid|pay)\s*(\d+(?:\.\d+)?))|(?:\b(\d+(?:\.\d+)?)\s*(?:rs|rupees|bucks)?\b)/i);
+  
+  if (hasSpendVerb && numMatch && !/\b(goals?|emergency|ppf|epf|nps|stocks?|etfs?|mutual\s*funds?|goldietf|tata\s*cap)\b/i.test(clean)) {
+    const amount = Number(numMatch[1] || numMatch[2] || numMatch[3]);
+    if (amount > 0 && amount < 1000000) {
+      const targetDateInfo = extractTargetDate(clean);
+      let cat = "Other";
+      let desc = "";
+
+      for (const [c, words] of Object.entries(EXPENSE_CATEGORIES_MAP)) {
+        for (const w of words) {
+          if (new RegExp(`\\b${w}\\b`, 'i').test(clean)) {
+            cat = c;
+            desc = w.charAt(0).toUpperCase() + w.slice(1);
+            break;
+          }
+        }
+        if (desc) break;
+      }
+
+      let customDesc = clean
+        .replace(/(?:spent|spend|paid|pay|for|in|morning|evening|night|today|yesterday|via|rupees|rs\.?|₹|bucks|now)\b/gi, '')
+        .replace(/\b\d+(\.\d+)?\b/g, '')
+        .trim();
+      if (customDesc.length >= 2) {
+        desc = customDesc.charAt(0).toUpperCase() + customDesc.slice(1);
+      }
+
+      if (!desc) {
+        desc = "Expense";
+        cat = "Other";
+      }
+
+      const expenseObj = {
+        id: "exp_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        date: targetDateInfo.date,
+        time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        month: targetDateInfo.date.substring(0, 7),
+        amount: amount,
+        description: desc,
+        category: cat,
+        paymentMode: clean.includes("cash") ? "Cash" : (clean.includes("card") ? "Credit Card" : "UPI"),
+        source: "AI Agent",
+        createdAt: new Date().toISOString()
+      };
+
+      return {
+        isLog: true,
+        expense: expenseObj
+      };
+    }
+  }
+
+  return null;
 }
 
 function tryFastHabitIntent(userText) {
@@ -1523,6 +1743,28 @@ chatForm.addEventListener('submit', async (e) => {
     if (needIndicator) hideTypingIndicator();
   }
   
+  // 0. Try Fast Expense Log or Query (0ms)
+  const expenseFastMatch = tryFastExpenseIntent(text);
+  if (expenseFastMatch) {
+    if (expenseFastMatch.isLog) {
+      logExpenseDirectly(expenseFastMatch.expense);
+      const isToday = expenseFastMatch.expense.date === getLocalDateISO();
+      const daySummary = getIndexedExpensesSummary(expenseFastMatch.expense.date);
+      const noteStr = (expenseFastMatch.expense.description && expenseFastMatch.expense.description !== 'Expense') ? ` for **${expenseFastMatch.expense.description}**` : '';
+      const reply = `💸 **Logged ₹${expenseFastMatch.expense.amount}${noteStr} for ${isToday ? 'today' : expenseFastMatch.expense.date}!**\n\n📅 **Day Total:** ₹${daySummary.total.toLocaleString('en-IN')}\n*Synced to Google Sheet ☁️*`;
+      appendMessage('ai', reply);
+      chatHistory.push({ role: 'user', content: text });
+      chatHistory.push({ role: 'model', content: reply });
+      showToast(`Logged ₹${expenseFastMatch.expense.amount}`);
+      return;
+    } else if (expenseFastMatch.isQuery) {
+      appendMessage('ai', expenseFastMatch.reply);
+      chatHistory.push({ role: 'user', content: text });
+      chatHistory.push({ role: 'model', content: expenseFastMatch.reply });
+      return;
+    }
+  }
+
   // 1. Try Fast Habit Index (0ms)
   const habitFastMatch = tryFastHabitIntent(text);
   if (habitFastMatch) {
