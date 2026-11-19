@@ -6,8 +6,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="AI Agent">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Leo - Personal AI Agent</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20261119_v2">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -114,13 +117,28 @@
             <div class="date-select-col">
               <label for="templateMonthSelect" class="sidebar-label">Select Month:</label>
               <select id="templateMonthSelect" class="sidebar-select">
-                <!-- Dynamically populated -->
+                <option value="December" selected>December</option>
+                <option value="January">January</option>
+                <option value="February">February</option>
+                <option value="March">March</option>
+                <option value="April">April</option>
+                <option value="May">May</option>
+                <option value="June">June</option>
+                <option value="July">July</option>
+                <option value="August">August</option>
+                <option value="September">September</option>
+                <option value="October">October</option>
+                <option value="November">November</option>
               </select>
             </div>
             <div class="date-select-col date-select-col-year">
               <label for="templateYearSelect" class="sidebar-label">Select Year:</label>
               <select id="templateYearSelect" class="sidebar-select">
-                <!-- Dynamically populated -->
+                <option value="2025">2025</option>
+                <option value="2026" selected>2026</option>
+                <option value="2027">2027</option>
+                <option value="2028">2028</option>
+                <option value="2029">2029</option>
               </select>
             </div>
           </div>
@@ -176,6 +194,6 @@
     <span id="toastMsg">Success</span>
   </div>
 
-  <script src="js/app_v3.js?v=42"></script>
+  <script src="js/app_v3.js?v=20261119_v2"></script>
 </body>
 </html>
