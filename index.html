@@ -23,7 +23,11 @@
           <h1>Leo</h1>
         </div>
         
-        <div style="display: flex; gap: 10px; align-items: center;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button id="openMonthlyUpdateBtn" class="header-action-pill" title="Monthly Investment Update Template">
+            <i data-lucide="calendar-check"></i>
+            <span>Monthly Update</span>
+          </button>
           <div id="apiKeyBadge" class="key-badge" title="Groq API Key valid until Aug 20, 2027">
             <i data-lucide="key"></i>
             <span>API Key: Valid till Aug 2027</span>
@@ -86,12 +90,77 @@
     </div>
   </div>
 
+  <!-- Slide-out Sidebar Drawer: Monthly Investment Update -->
+  <div id="monthlySidebarOverlay" class="sidebar-overlay">
+    <div id="monthlySidebar" class="sidebar-drawer glass-panel">
+      
+      <div class="sidebar-header">
+        <div class="sidebar-title-group">
+          <span class="sidebar-icon">📊</span>
+          <div>
+            <h3>Monthly Investments</h3>
+            <p class="sidebar-subtitle">Quick update for Wealthflow</p>
+          </div>
+        </div>
+        <button id="closeMonthlySidebarBtn" class="sidebar-close-btn" aria-label="Close">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- Target Month -->
+        <div class="sidebar-section">
+          <label for="templateMonthSelect" class="sidebar-label">Select Month:</label>
+          <div class="month-select-wrapper">
+            <select id="templateMonthSelect" class="sidebar-select">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+        </div>
+
+        <!-- Assets from Wealthflow -->
+        <div class="sidebar-section">
+          <div class="section-heading-row">
+            <label class="sidebar-label">Monthly SIPs & Contributions:</label>
+            <span class="total-badge" id="sidebarTotalAmount">Total: ₹0</span>
+          </div>
+          
+          <div class="asset-inputs-list" id="assetInputsList">
+            <!-- Dynamically populated from Wealthflow assets -->
+          </div>
+        </div>
+
+        <!-- Live Generated Prompt Box -->
+        <div class="sidebar-section">
+          <div class="section-heading-row">
+            <label class="sidebar-label">Generated Prompt for Leo:</label>
+            <span class="ready-badge">Ready to Copy</span>
+          </div>
+          <textarea id="monthlyPromptOutput" class="prompt-preview-textarea" readonly rows="4" placeholder="Select month and enter amounts above..."></textarea>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer Actions -->
+      <div class="sidebar-footer">
+        <button type="button" id="copyPromptBtn" class="sidebar-btn primary-btn">
+          <i data-lucide="copy"></i>
+          <span>Copy Prompt</span>
+        </button>
+        <button type="button" id="sendPromptBtn" class="sidebar-btn send-btn">
+          <i data-lucide="send"></i>
+          <span>Send to Leo</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div id="toast" class="toast hidden">
     <i data-lucide="check-circle" class="toast-icon"></i>
     <span id="toastMsg">Success</span>
   </div>
 
-  <script src="js/app_v3.js?v=41"></script>
+  <script src="js/app_v3.js?v=42"></script>
 </body>
 </html>

@@ -878,6 +878,7 @@ async function executeToolCall(call) {
       return { status: "success", result: `💸 **Logged Expense:** ₹${exp.amount} for **${exp.description}** (${exp.category}) for ${exp.date}. Saved to Expense Tracker!` };
     }
     else if (call.name === "get_expenses") {
+      await fetchExpenseCloudState(true);
       const dateTarget = call.args.date === 'yesterday' ? getLocalDateISO(new Date(Date.now() - 86400000)) : (call.args.date || getLocalDateISO());
       const summary = getIndexedExpensesSummary(dateTarget, call.args.month);
       return JSON.stringify(summary);
@@ -915,7 +916,7 @@ Daily Expenses:
 - When user says they spent money, paid for something, or bought an item (e.g. "spent 20 for tea", "paid 50 for auto", "lunch 150", "petrol 300"):
   Call 'add_expense' with amount, description, category, and date.
 - When user asks about their spending or expenses (e.g. "how much did I spend today?", "what are my expenses today?"):
-  Call 'get_expenses'.
+  Call 'get_expenses'. ALWAYS display amounts in Indian Rupees (₹) and NEVER in $. Show itemized list if available.
 
 API Key Info:
 - Your Groq API key is active and valid until August 20, 2027. If asked, confirm this accurately.
@@ -1196,6 +1197,80 @@ function inferExpenseCategory(desc) {
   return "Other";
 }
 
+let cachedExpensesList = null;
+let lastExpenseFetchTime = 0;
+let expenseFetchPromise = null;
+
+function normalizeExpenseMonthStr(m) {
+  if (!m) return "";
+  if (/^\d{4}-\d{2}$/.test(m)) return m;
+  const d = new Date(m);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${mo}`;
+  }
+  return String(m).substring(0, 7);
+}
+
+function normalizeExpenseDateStr(dStr) {
+  if (!dStr) return getLocalDateISO();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) return dStr;
+  const d = new Date(dStr);
+  if (!isNaN(d.getTime())) {
+    return getLocalDateISO(d);
+  }
+  return String(dStr).substring(0, 10);
+}
+
+function normalizeExpenseTimeStr(t) {
+  if (!t) return "";
+  if (t.includes("GMT") || t.includes("1899")) {
+    const d = new Date(t);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    }
+  }
+  return t;
+}
+
+async function fetchExpenseCloudState(force = false) {
+  const now = Date.now();
+  if (!force && cachedExpensesList && (now - lastExpenseFetchTime < 10000)) {
+    return cachedExpensesList;
+  }
+  if (expenseFetchPromise) return expenseFetchPromise;
+
+  expenseFetchPromise = (async () => {
+    try {
+      const res = await fetch(`${EXPENSE_GAS_URL}?action=getExpenses&t=${Date.now()}`);
+      const data = await res.json();
+      if (data && Array.isArray(data.expenses)) {
+        const cleanList = data.expenses.map(e => ({
+          ...e,
+          date: normalizeExpenseDateStr(e.date),
+          month: normalizeExpenseMonthStr(e.month || e.date),
+          time: normalizeExpenseTimeStr(e.time),
+          amount: Number(e.amount) || 0
+        }));
+        cachedExpensesList = cleanList;
+        lastExpenseFetchTime = Date.now();
+        try {
+          localStorage.setItem("expense_tracker_data", JSON.stringify(cleanList));
+        } catch (err) {}
+        return cleanList;
+      }
+    } catch (err) {
+      console.warn("Failed to fetch expenses from GAS:", err);
+    } finally {
+      expenseFetchPromise = null;
+    }
+    return getStoredExpenses();
+  })();
+
+  return expenseFetchPromise;
+}
+
 function getStoredExpenses() {
   try {
     const raw = localStorage.getItem("expense_tracker_data");
@@ -1207,8 +1282,9 @@ function getStoredExpenses() {
 
 function logExpenseDirectly(expense) {
   try {
-    const list = getStoredExpenses();
+    const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
     list.unshift(expense);
+    cachedExpensesList = list;
     localStorage.setItem("expense_tracker_data", JSON.stringify(list));
     
     // Background sync to Google Sheet
@@ -1224,11 +1300,13 @@ function logExpenseDirectly(expense) {
 }
 
 function getIndexedExpensesSummary(dateTarget, monthTarget) {
-  const list = getStoredExpenses();
+  const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
   const todayISO = dateTarget || getLocalDateISO();
   const filtered = list.filter(e => {
-    if (monthTarget) return e.month === monthTarget || (e.date && e.date.substring(0, 7) === monthTarget);
-    return e.date === todayISO;
+    const expDate = normalizeExpenseDateStr(e.date);
+    const expMonth = normalizeExpenseMonthStr(e.month || expDate);
+    if (monthTarget) return expMonth === monthTarget || expDate.substring(0, 7) === monthTarget;
+    return expDate === todayISO;
   });
 
   const total = filtered.reduce((s, e) => s + (Number(e.amount) || 0), 0);
@@ -1245,7 +1323,7 @@ function tryFastExpenseIntent(userText) {
   const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '').trim();
 
   // 1. Expense Queries (e.g. "today expenses", "how much did i spend today", "expenses today", "my expenses")
-  const isExpQuery = /\b(spent\s*today|spend\s*today|today'?s?\s*expens|expens\s*today|total\s*spent|how\s*much.*spent|spending\s*today|my\s*expens)\b/i.test(clean) &&
+  const isExpQuery = /\b(spent\s*today|spend\s*today|today'?s?\s*expens|expens\s*today|total\s*spent|how\s*much.*spent|spending|my\s*expens|show\s*expens|list\s*expens)\b/i.test(clean) &&
     !/\b(invest|invested|networth|stocks|mutual)\b/i.test(clean);
 
   if (isExpQuery) {
@@ -1257,7 +1335,10 @@ function tryFastExpenseIntent(userText) {
         reply: `🧾 **No expenses recorded for ${targetDateInfo.isToday ? 'today' : targetDateInfo.label} (${targetDateInfo.date}).**\n\n*You can log anytime by typing: "spent 20 for tea" or "paid 50 for auto"!* ☕`
       };
     }
-    const lines = summary.expenses.map(e => `- **${e.description}**: ₹${e.amount} *(${e.category})*`);
+    const lines = summary.expenses.map(e => {
+      const timeTag = e.time ? ` • ${e.time}` : '';
+      return `- **${e.description}**: ₹${Number(e.amount).toLocaleString('en-IN')} *(${e.category}${timeTag})*`;
+    });
     return {
       isQuery: true,
       reply: `🧾 **Expenses for ${targetDateInfo.isToday ? 'Today' : targetDateInfo.label} (${targetDateInfo.date}):**\n\n${lines.join('\n')}\n\n**Total:** ₹${summary.total.toLocaleString('en-IN')} 💸\n*Synced with your Expense Tracker!*`
@@ -1739,6 +1820,15 @@ chatForm.addEventListener('submit', async (e) => {
   const clean = text.trim().toLowerCase().replace(/[?!.,]/g, '');
   const isHabitQuery = /\b(what|show|list|tell|which|status|overview|summary|today|pending|left|remaining|done|completed|did|streak|stats)\b/i.test(clean);
   const isInvestQuery = /\b(networth|net\s*worth|portfolio|stocks?|etfs?|mutual\s*funds?|gold|silver|epf|ppf|nps|invested|holdings)\b/i.test(clean);
+  const isExpenseQuery = /\b(expens|spent|spending|spend|chai|tea|coffee|lunch|dinner|auto|petrol)\b/i.test(clean);
+
+  // Ensure expense cache is populated and fresh from Google Sheets
+  if (!cachedExpensesList || isExpenseQuery || Date.now() - lastExpenseFetchTime > 15000) {
+    const needIndicator = (!cachedExpensesList || isExpenseQuery) && isExpenseQuery;
+    if (needIndicator) showTypingIndicator();
+    await fetchExpenseCloudState(isExpenseQuery);
+    if (needIndicator) hideTypingIndicator();
+  }
 
   // Ensure habit cache is populated and fresh
   if (!cachedHabits || cachedHabits.length === 0 || habitsFetchPromise || (isHabitQuery && Date.now() - lastHabitFetchTime > 10000)) {
@@ -1908,11 +1998,156 @@ if (quickChipsContainer) {
   });
 }
 
+// --- Monthly Investment Update Sidebar Helper ---
+const DEFAULT_MONTHLY_SIPS = [
+  { id: 'goal_car_fund', name: 'Goals', icon: '🎯', category: 'Car Fund / Goals', amount: 15000 },
+  { id: 'goal_digi_gold', name: 'digi gold', icon: '🪙', category: 'Gold Investment', amount: 1750 },
+  { id: 'goal_emergency_fund', name: 'emergency fund', icon: '🛡️', category: 'Emergency Savings', amount: 12000 },
+  { id: 'nps_tier1', name: 'nps', icon: '🏛️', category: 'NPS Tier 1', amount: 1000 },
+  { id: 'ppf_balance', name: 'ppf', icon: '🏦', category: 'PPF Balance', amount: 2000 },
+  { id: 'mf_parag_parikh', name: 'Parag pariek', icon: '📈', category: 'Parag Parikh Flexi Cap', amount: 4000 },
+  { id: 'mf_icici_n50', name: 'icici nifty 50 fund', icon: '📊', category: 'ICICI Nifty 50 Index', amount: 4000 },
+  { id: 'mf_bandhan_small', name: 'bandan small cap', icon: '🚀', category: 'Bandhan Small Cap', amount: 3000 },
+  { id: 'epf_balance', name: 'epf balance', icon: '💼', category: 'EPF Balance', amount: 14108 }
+];
+
+function initMonthlyUpdateSidebar() {
+  const openBtn = document.getElementById('openMonthlyUpdateBtn');
+  const closeBtn = document.getElementById('closeMonthlySidebarBtn');
+  const overlay = document.getElementById('monthlySidebarOverlay');
+  const monthSelect = document.getElementById('templateMonthSelect');
+  const inputsList = document.getElementById('assetInputsList');
+  const outputTextarea = document.getElementById('monthlyPromptOutput');
+  const copyBtn = document.getElementById('copyPromptBtn');
+  const sendBtn = document.getElementById('sendPromptBtn');
+
+  if (!openBtn || !overlay || !inputsList || !outputTextarea) return;
+
+  let sips = JSON.parse(JSON.stringify(DEFAULT_MONTHLY_SIPS));
+  try {
+    const saved = localStorage.getItem('leo_monthly_sips_template');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        sips.forEach(s => {
+          const match = parsed.find(p => p.id === s.id);
+          if (match && typeof match.amount === 'number') s.amount = match.amount;
+        });
+      }
+    }
+  } catch (e) {}
+
+  // Populate month options
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const now = new Date();
+  const nextMonthIdx = (now.getMonth() + 1) % 12;
+  const targetMonthName = monthNames[nextMonthIdx];
+
+  monthSelect.innerHTML = '';
+  const reorderedMonths = [targetMonthName, ...monthNames.filter(m => m !== targetMonthName)];
+  reorderedMonths.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    monthSelect.appendChild(opt);
+  });
+  monthSelect.value = targetMonthName;
+
+  function renderInputs() {
+    inputsList.innerHTML = '';
+    sips.forEach((item, idx) => {
+      const row = document.createElement('div');
+      row.className = 'asset-input-row';
+      row.innerHTML = `
+        <div class="asset-info">
+          <span class="asset-icon">${item.icon}</span>
+          <div class="asset-text">
+            <span class="asset-name">${item.name}</span>
+            <span class="asset-category">${item.category}</span>
+          </div>
+        </div>
+        <div class="asset-input-box">
+          <span class="currency-symbol">₹</span>
+          <input type="number" class="asset-num-input" data-index="${idx}" value="${item.amount}" min="0" step="any">
+        </div>
+      `;
+      inputsList.appendChild(row);
+    });
+
+    inputsList.querySelectorAll('.asset-num-input').forEach(input => {
+      input.addEventListener('input', (e) => {
+        const idx = parseInt(e.target.getAttribute('data-index'), 10);
+        const val = parseFloat(e.target.value) || 0;
+        sips[idx].amount = val;
+        try {
+          localStorage.setItem('leo_monthly_sips_template', JSON.stringify(sips));
+        } catch (err) {}
+        updateGeneratedPrompt();
+      });
+    });
+
+    updateGeneratedPrompt();
+  }
+
+  function updateGeneratedPrompt() {
+    const chosenMonth = monthSelect.value;
+    const parts = sips
+      .filter(item => item.amount > 0)
+      .map(item => `${item.amount} to ${item.name}`);
+
+    const promptText = `For ${chosenMonth} - ${parts.join(', ')}`;
+    outputTextarea.value = promptText;
+
+    const total = sips.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const totalEl = document.getElementById('sidebarTotalAmount');
+    if (totalEl) totalEl.textContent = `Total: ₹${total.toLocaleString('en-IN')}`;
+  }
+
+  monthSelect.addEventListener('change', updateGeneratedPrompt);
+
+  openBtn.addEventListener('click', () => {
+    overlay.classList.add('active');
+    lucide.createIcons();
+  });
+
+  closeBtn.addEventListener('click', () => overlay.classList.remove('active'));
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.classList.remove('active');
+  });
+
+  // Copy to clipboard
+  copyBtn.addEventListener('click', async () => {
+    const text = outputTextarea.value;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Copied update prompt to clipboard! 📋');
+    } catch (err) {
+      outputTextarea.select();
+      document.execCommand('copy');
+      showToast('Copied to clipboard! 📋');
+    }
+  });
+
+  // Send directly to Leo
+  sendBtn.addEventListener('click', () => {
+    const text = outputTextarea.value;
+    if (!text) return;
+    overlay.classList.remove('active');
+    chatInput.value = text;
+    chatForm.dispatchEvent(new Event('submit'));
+  });
+
+  renderInputs();
+}
+
 // Initialization
 
 window.addEventListener('DOMContentLoaded', async () => {
   // Pre-load fresh data in background for instant responsiveness
   getHabitsState(true);
   fetchInvestCloudState(true);
+  fetchExpenseCloudState(true);
+  initMonthlyUpdateSidebar();
   checkReminders();
 });
