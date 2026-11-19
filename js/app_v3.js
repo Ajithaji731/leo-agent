@@ -1724,17 +1724,34 @@ function tryFastInvestLog(userText, investState) {
   // Guard against habit logs or questions
   if (/\b(how much|what is|what's|did i|have i|list habits|what all i did)\b/i.test(clean)) return null;
 
-  // Extract month (supports October, for October, Oct 2026, 2026-10, etc.)
+  // Extract month and year (supports "For December 2026 - ", "October 2026", "Oct", "2026-10", etc.)
   let targetMonth = null;
   const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sept', 'sep', 'oct', 'nov', 'dec'];
-  for (const m of monthNames) {
-    if (new RegExp('\\b' + m + '\\b', 'i').test(clean)) {
-      targetMonth = normalizeMonth(m);
-      break;
+
+  let body = clean;
+  const headerMatch = clean.match(/^for\s+([a-z]+|\d{4}-\d{2})(?:\s+(\d{4}))?\s*[-:]\s*/i);
+  if (headerMatch) {
+    body = clean.substring(headerMatch[0].length);
+    const mStr = headerMatch[1];
+    const yStr = headerMatch[2] || (new Date().getFullYear().toString());
+    targetMonth = normalizeMonth(`${mStr} ${yStr}`);
+  }
+
+  if (!targetMonth) {
+    const yyyymmMatch = clean.match(/\b(20\d\d-\d\d)\b/);
+    if (yyyymmMatch) {
+      targetMonth = yyyymmMatch[1];
+    } else {
+      const yrMatch = clean.match(/\b(20\d\d)\b/);
+      const yStr = yrMatch ? yrMatch[1] : (new Date().getFullYear().toString());
+      for (const m of monthNames) {
+        if (new RegExp('\\b' + m + '\\b', 'i').test(clean)) {
+          targetMonth = normalizeMonth(`${m} ${yStr}`);
+          break;
+        }
+      }
     }
   }
-  const yyyymmMatch = clean.match(/\b(20\d\d-\d\d)\b/);
-  if (yyyymmMatch) targetMonth = yyyymmMatch[1];
 
   if (!targetMonth) {
     targetMonth = normalizeMonth(null); // defaults to current month
@@ -1746,7 +1763,7 @@ function tryFastInvestLog(userText, investState) {
   const filterWordsRegex = new RegExp('\\b(' + monthNames.join('|') + '|for|in|to|into|month|added|add|invested|invest|put|saved|logged|set|deposit|deposited|updating|update|balance|fund|funds)\\b', 'gi');
 
   // Split clauses by commas, semicolons, newlines, 'and', '&', '+'
-  const parts = clean.split(/(?:\band\b|[,;&\n\r]+)/i);
+  const parts = body.split(/(?:\band\b|[,;&\n\r]+)/i);
   for (const part of parts) {
     const trimmedPart = part.trim();
     if (!trimmedPart) continue;
@@ -2036,6 +2053,7 @@ function initMonthlyUpdateSidebar() {
   const closeBtn = document.getElementById('closeMonthlySidebarBtn');
   const overlay = document.getElementById('monthlySidebarOverlay');
   const monthSelect = document.getElementById('templateMonthSelect');
+  const yearSelect = document.getElementById('templateYearSelect');
   const categoryTabs = document.getElementById('sidebarCategoryTabs');
   const inputsList = document.getElementById('assetInputsList');
   const outputTextarea = document.getElementById('monthlyPromptOutput');
@@ -2074,6 +2092,23 @@ function initMonthlyUpdateSidebar() {
     monthSelect.appendChild(opt);
   });
   monthSelect.value = targetMonthName;
+
+  // Populate year options
+  const currentYear = now.getFullYear();
+  const defaultYear = (nextMonthIdx === 0 && now.getMonth() === 11) ? currentYear + 1 : currentYear;
+
+  if (yearSelect) {
+    yearSelect.innerHTML = '';
+    const years = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1, currentYear + 2, currentYear + 3];
+    years.forEach(y => {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = y;
+      yearSelect.appendChild(opt);
+    });
+    yearSelect.value = defaultYear;
+    yearSelect.addEventListener('change', updateGeneratedPrompt);
+  }
 
   // Category filter tabs
   if (categoryTabs) {
@@ -2130,12 +2165,14 @@ function initMonthlyUpdateSidebar() {
   }
 
   function updateGeneratedPrompt() {
-    const chosenMonth = monthSelect.value;
+    const chosenMonth = monthSelect ? monthSelect.value : '';
+    const chosenYear = yearSelect ? yearSelect.value : '';
     const parts = sips
       .filter(item => item.amount > 0)
       .map(item => `${item.amount} to ${item.name}`);
 
-    const promptText = `For ${chosenMonth} - ${parts.join(', ')}`;
+    const yearSuffix = chosenYear ? ` ${chosenYear}` : '';
+    const promptText = `For ${chosenMonth}${yearSuffix} - ${parts.join(', ')}`;
     outputTextarea.value = promptText;
 
     const total = sips.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);

@@ -653,6 +653,22 @@ body.theme-alt-dark .chip-btn {
   border-radius: 999px;
 }
 
+.date-select-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.date-select-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.date-select-col-year {
+  flex: 0 0 115px;
+}
+
 .sidebar-select {
   width: 100%;
   background: rgba(255, 255, 255, 0.05);
