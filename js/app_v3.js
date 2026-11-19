@@ -2,7 +2,7 @@
 const INVEST_GAS_URL = 'https://script.google.com/macros/s/AKfycbwggOUodVCdLua57K3DVVIdmn8J12uZWClM47tlWz3xzOrkkI_cc62EeHazaVhrsHqT/exec';
 const AI_CHAT_GAS_URL = 'https://script.google.com/macros/s/AKfycbzGKwN7SseLOsaQeOnql_3cmMqaM4u7gJdcoIXsCbhn104CqpaECzwV9U6PwidLas0y/exec';
 const HABIT_GAS_URL = 'https://script.google.com/macros/s/AKfycbwTLJ5PSqaSlghakcqWW7s5-0GhBrC9KhUl5cUMfmwkkphNEiarrbEWYglYnnOcCXzo2w/exec';
-const EXPENSE_GAS_URL = 'https://script.google.com/macros/s/AKfycbyT64Ehwsk_hev8n_-G6fjX2Bt7NyFUTWc81BALw5phR14f2tkd_ZksyIANOmVqOoE/exec';
+const EXPENSE_GAS_URL = 'https://script.google.com/macros/s/AKfycbxakJAxaUGLaCedfm9us4Oue1eThaesh9C_i28Yrd31sXAjpMCYrA-U1F9i4A-CiwdD/exec';
 const SECURE_ID = '2108'; // Hardcoded as requested
 
 // Global State
