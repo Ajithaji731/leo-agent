@@ -879,7 +879,12 @@ async function executeToolCall(call) {
     }
     else if (call.name === "get_expenses") {
       await fetchExpenseCloudState(true);
-      const dateTarget = call.args.date === 'yesterday' ? getLocalDateISO(new Date(Date.now() - 86400000)) : (call.args.date || getLocalDateISO());
+      let dateTarget = call.args.date;
+      if (!dateTarget || dateTarget === 'today') {
+        dateTarget = getLocalDateISO();
+      } else if (dateTarget === 'yesterday') {
+        dateTarget = getLocalDateISO(new Date(Date.now() - 86400000));
+      }
       const summary = getIndexedExpensesSummary(dateTarget, call.args.month);
       return JSON.stringify(summary);
     }
@@ -1197,7 +1202,7 @@ function inferExpenseCategory(desc) {
   return "Other";
 }
 
-let cachedExpensesList = null;
+let cachedExpensesList = getStoredExpenses();
 let lastExpenseFetchTime = 0;
 let expenseFetchPromise = null;
 
@@ -1322,9 +1327,11 @@ function getIndexedExpensesSummary(dateTarget, monthTarget) {
 function tryFastExpenseIntent(userText) {
   const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '').trim();
 
-  // 1. Expense Queries (e.g. "today expenses", "how much did i spend today", "expenses today", "my expenses")
-  const isExpQuery = /\b(spent\s*today|spend\s*today|today'?s?\s*expens|expens\s*today|total\s*spent|how\s*much.*spent|spending|my\s*expens|show\s*expens|list\s*expens)\b/i.test(clean) &&
-    !/\b(invest|invested|networth|stocks|mutual)\b/i.test(clean);
+  // 1. Expense Queries (e.g. "today expenses", "today's expenses", "how much did i spend today", "expenses today", "my expenses")
+  const isInvest = /\b(invest|invested|networth|stocks?|etfs?|mutual|portfolio|sips?)\b/i.test(clean);
+  const isExplicitLog = /\b(spent|spend|paid|pay)\s*₹?\s*\d+/i.test(clean) || /^\d+\s*(rs|rupees|spent|for)?$/i.test(clean);
+  const isExpQuery = !isInvest && !isExplicitLog &&
+    /\b(expenses?|spending|spent\s*today|spend\s*today|total\s*spent|how\s*much.*spent|my\s*expenses?|show\s*expenses?|list\s*expenses?|what.*spent|daily\s*expenses?)\b/i.test(clean);
 
   if (isExpQuery) {
     const targetDateInfo = extractTargetDate(clean);
@@ -1820,7 +1827,7 @@ chatForm.addEventListener('submit', async (e) => {
   const clean = text.trim().toLowerCase().replace(/[?!.,]/g, '');
   const isHabitQuery = /\b(what|show|list|tell|which|status|overview|summary|today|pending|left|remaining|done|completed|did|streak|stats)\b/i.test(clean);
   const isInvestQuery = /\b(networth|net\s*worth|portfolio|stocks?|etfs?|mutual\s*funds?|gold|silver|epf|ppf|nps|invested|holdings)\b/i.test(clean);
-  const isExpenseQuery = /\b(expens|spent|spending|spend|chai|tea|coffee|lunch|dinner|auto|petrol)\b/i.test(clean);
+  const isExpenseQuery = /\b(expenses?|spent|spending|spend|chai|tea|coffee|lunch|dinner|auto|petrol)\b/i.test(clean);
 
   // Ensure expense cache is populated and fresh from Google Sheets
   if (!cachedExpensesList || isExpenseQuery || Date.now() - lastExpenseFetchTime > 15000) {
@@ -2000,15 +2007,28 @@ if (quickChipsContainer) {
 
 // --- Monthly Investment Update Sidebar Helper ---
 const DEFAULT_MONTHLY_SIPS = [
-  { id: 'goal_car_fund', name: 'Goals', icon: '🎯', category: 'Car Fund / Goals', amount: 15000 },
-  { id: 'goal_digi_gold', name: 'digi gold', icon: '🪙', category: 'Gold Investment', amount: 1750 },
-  { id: 'goal_emergency_fund', name: 'emergency fund', icon: '🛡️', category: 'Emergency Savings', amount: 12000 },
-  { id: 'nps_tier1', name: 'nps', icon: '🏛️', category: 'NPS Tier 1', amount: 1000 },
-  { id: 'ppf_balance', name: 'ppf', icon: '🏦', category: 'PPF Balance', amount: 2000 },
-  { id: 'mf_parag_parikh', name: 'Parag pariek', icon: '📈', category: 'Parag Parikh Flexi Cap', amount: 4000 },
-  { id: 'mf_icici_n50', name: 'icici nifty 50 fund', icon: '📊', category: 'ICICI Nifty 50 Index', amount: 4000 },
-  { id: 'mf_bandhan_small', name: 'bandan small cap', icon: '🚀', category: 'Bandhan Small Cap', amount: 3000 },
-  { id: 'epf_balance', name: 'epf balance', icon: '💼', category: 'EPF Balance', amount: 14108 }
+  // User's Core Monthly SIPs & Contributions
+  { id: 'goal_car_fund', name: 'Goals', fullName: 'Car Fund / Goals', group: 'savings', icon: '🎯', category: 'Car Fund / Goals', amount: 15000 },
+  { id: 'goal_digi_gold', name: 'digi gold', fullName: 'Digi Gold', group: 'savings', icon: '🪙', category: 'Gold Investment', amount: 1750 },
+  { id: 'goal_emergency_fund', name: 'emergency fund', fullName: 'Emergency Fund', group: 'savings', icon: '🛡️', category: 'Emergency Savings', amount: 12000 },
+  { id: 'nps_tier1', name: 'nps', fullName: 'NPS Tier 1', group: 'savings', icon: '🏛️', category: 'NPS Tier 1', amount: 1000 },
+  { id: 'ppf_balance', name: 'ppf', fullName: 'PPF Balance', group: 'savings', icon: '🏦', category: 'PPF Balance', amount: 2000 },
+  { id: 'mf_parag_parikh', name: 'Parag pariek', fullName: 'Parag Parikh Flexi Cap', group: 'mutual', icon: '📈', category: 'Flexi Cap Fund', amount: 4000 },
+  { id: 'mf_icici_n50', name: 'icici nifty 50 fund', fullName: 'ICICI Nifty 50 Index', group: 'mutual', icon: '📊', category: 'Index Fund', amount: 4000 },
+  { id: 'mf_bandhan_small', name: 'bandan small cap', fullName: 'Bandhan Small Cap', group: 'mutual', icon: '🚀', category: 'Small Cap Fund', amount: 3000 },
+  { id: 'epf_balance', name: 'epf balance', fullName: 'EPF Balance', group: 'savings', icon: '💼', category: 'EPF Balance', amount: 14108 },
+
+  // Wealthflow Stocks & ETFs Holdings
+  { id: 'st_tata_cap', name: 'TATA Capital', fullName: 'TATA Capital', group: 'stocks', icon: '🏢', category: 'Financial Services (NBFC)', amount: 0 },
+  { id: 'st_tatsilv', name: 'TATSILV', fullName: 'TATSILV', group: 'stocks', icon: '🥈', category: 'Commodities - Silver ETF', amount: 0 },
+  { id: 'st_goldietf', name: 'GOLDIETF', fullName: 'GOLDIETF', group: 'stocks', icon: '🥇', category: 'Commodities - Gold ETF', amount: 0 },
+  { id: 'st_hdfc', name: 'HDFC BANK', fullName: 'HDFC BANK', group: 'stocks', icon: '🏦', category: 'Banking - Private Sector', amount: 0 },
+  { id: 'st_bpcl', name: 'BPCL', fullName: 'BPCL', group: 'stocks', icon: '⛽', category: 'Oil & Gas', amount: 0 },
+  { id: 'st_icici', name: 'ICICI BANK', fullName: 'ICICI BANK', group: 'stocks', icon: '🏦', category: 'Banking - Private Sector', amount: 0 },
+  { id: 'st_metalietf', name: 'METALIETF', fullName: 'METALIETF', group: 'stocks', icon: '⛏️', category: 'Metals & Mining ETF', amount: 0 },
+  { id: 'st_southbank', name: 'SOUTHBANK', fullName: 'SOUTHBANK', group: 'stocks', icon: '🏛️', category: 'Banking - Private Sector', amount: 0 },
+  { id: 'st_nippon_it', name: 'Nippon India ETF IT', fullName: 'Nippon India ETF IT', group: 'stocks', icon: '💻', category: 'Information Technology ETF', amount: 0 },
+  { id: 'nps_tier2', name: 'nps tier 2', fullName: 'NPS Tier 2', group: 'savings', icon: '🏛️', category: 'NPS Tier 2', amount: 0 }
 ];
 
 function initMonthlyUpdateSidebar() {
@@ -2016,6 +2036,7 @@ function initMonthlyUpdateSidebar() {
   const closeBtn = document.getElementById('closeMonthlySidebarBtn');
   const overlay = document.getElementById('monthlySidebarOverlay');
   const monthSelect = document.getElementById('templateMonthSelect');
+  const categoryTabs = document.getElementById('sidebarCategoryTabs');
   const inputsList = document.getElementById('assetInputsList');
   const outputTextarea = document.getElementById('monthlyPromptOutput');
   const copyBtn = document.getElementById('copyPromptBtn');
@@ -2023,6 +2044,7 @@ function initMonthlyUpdateSidebar() {
 
   if (!openBtn || !overlay || !inputsList || !outputTextarea) return;
 
+  let activeFilter = 'all';
   let sips = JSON.parse(JSON.stringify(DEFAULT_MONTHLY_SIPS));
   try {
     const saved = localStorage.getItem('leo_monthly_sips_template');
@@ -2053,22 +2075,40 @@ function initMonthlyUpdateSidebar() {
   });
   monthSelect.value = targetMonthName;
 
+  // Category filter tabs
+  if (categoryTabs) {
+    categoryTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('.sidebar-cat-pill');
+      if (!btn) return;
+      categoryTabs.querySelectorAll('.sidebar-cat-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeFilter = btn.getAttribute('data-filter') || 'all';
+      renderInputs();
+    });
+  }
+
   function renderInputs() {
     inputsList.innerHTML = '';
-    sips.forEach((item, idx) => {
+    const filtered = sips.filter(item => {
+      if (activeFilter === 'all') return true;
+      return item.group === activeFilter;
+    });
+
+    filtered.forEach((item) => {
+      const globalIdx = sips.findIndex(s => s.id === item.id);
       const row = document.createElement('div');
       row.className = 'asset-input-row';
       row.innerHTML = `
         <div class="asset-info">
           <span class="asset-icon">${item.icon}</span>
           <div class="asset-text">
-            <span class="asset-name">${item.name}</span>
+            <span class="asset-name">${item.fullName || item.name}</span>
             <span class="asset-category">${item.category}</span>
           </div>
         </div>
         <div class="asset-input-box">
           <span class="currency-symbol">₹</span>
-          <input type="number" class="asset-num-input" data-index="${idx}" value="${item.amount}" min="0" step="any">
+          <input type="number" class="asset-num-input" data-index="${globalIdx}" value="${item.amount > 0 ? item.amount : ''}" placeholder="0" min="0" step="any">
         </div>
       `;
       inputsList.appendChild(row);

@@ -670,6 +670,41 @@ body.theme-alt-dark .chip-btn {
   color: #fff;
 }
 
+.sidebar-category-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 2px 0 6px 0;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.sidebar-category-tabs::-webkit-scrollbar {
+  display: none;
+}
+.sidebar-cat-pill {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.sidebar-cat-pill:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+}
+.sidebar-cat-pill.active {
+  background: var(--primary-color);
+  color: #fff;
+  border-color: var(--primary-color);
+  box-shadow: 0 2px 8px rgba(6, 182, 212, 0.25);
+}
+
 .asset-inputs-list {
   display: flex;
   flex-direction: column;

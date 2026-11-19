@@ -121,10 +121,17 @@
         <!-- Assets from Wealthflow -->
         <div class="sidebar-section">
           <div class="section-heading-row">
-            <label class="sidebar-label">Monthly SIPs & Contributions:</label>
+            <label class="sidebar-label">Wealthflow Holdings & SIPs:</label>
             <span class="total-badge" id="sidebarTotalAmount">Total: ₹0</span>
           </div>
           
+          <div class="sidebar-category-tabs" id="sidebarCategoryTabs">
+            <button type="button" class="sidebar-cat-pill active" data-filter="all">All</button>
+            <button type="button" class="sidebar-cat-pill" data-filter="stocks">Stocks & ETFs</button>
+            <button type="button" class="sidebar-cat-pill" data-filter="mutual">Mutual Funds</button>
+            <button type="button" class="sidebar-cat-pill" data-filter="savings">Savings & Goals</button>
+          </div>
+
           <div class="asset-inputs-list" id="assetInputsList">
             <!-- Dynamically populated from Wealthflow assets -->
           </div>
