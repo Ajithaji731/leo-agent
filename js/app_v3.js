@@ -2120,15 +2120,15 @@ if (quickChipsContainer) {
 // --- Monthly Investment Update Sidebar Helper ---
 const DEFAULT_MONTHLY_SIPS = [
   // User's Core Monthly SIPs & Contributions
-  { id: 'goal_car_fund', name: 'Goals', fullName: 'Car Fund / Goals', group: 'savings', icon: '🎯', category: 'Car Fund / Goals', amount: 15000 },
-  { id: 'goal_digi_gold', name: 'digi gold', fullName: 'Digi Gold', group: 'savings', icon: '🪙', category: 'Gold Investment', amount: 1750 },
-  { id: 'goal_emergency_fund', name: 'emergency fund', fullName: 'Emergency Fund', group: 'savings', icon: '🛡️', category: 'Emergency Savings', amount: 12000 },
-  { id: 'nps_tier1', name: 'nps', fullName: 'NPS Tier 1', group: 'savings', icon: '🏛️', category: 'NPS Tier 1', amount: 1000 },
-  { id: 'ppf_balance', name: 'ppf', fullName: 'PPF Balance', group: 'savings', icon: '🏦', category: 'PPF Balance', amount: 2000 },
-  { id: 'mf_parag_parikh', name: 'Parag pariek', fullName: 'Parag Parikh Flexi Cap', group: 'mutual', icon: '📈', category: 'Flexi Cap Fund', amount: 4000 },
-  { id: 'mf_icici_n50', name: 'icici nifty 50 fund', fullName: 'ICICI Nifty 50 Index', group: 'mutual', icon: '📊', category: 'Index Fund', amount: 4000 },
-  { id: 'mf_bandhan_small', name: 'bandan small cap', fullName: 'Bandhan Small Cap', group: 'mutual', icon: '🚀', category: 'Small Cap Fund', amount: 3000 },
-  { id: 'epf_balance', name: 'epf balance', fullName: 'EPF Balance', group: 'savings', icon: '💼', category: 'EPF Balance', amount: 14108 },
+  { id: 'goal_car_fund', name: 'Goals', fullName: 'Car Fund / Goals', group: 'savings', icon: '🎯', category: 'Car Fund / Goals', amount: 0 },
+  { id: 'goal_digi_gold', name: 'digi gold', fullName: 'Digi Gold', group: 'savings', icon: '🪙', category: 'Gold Investment', amount: 0 },
+  { id: 'goal_emergency_fund', name: 'emergency fund', fullName: 'Emergency Fund', group: 'savings', icon: '🛡️', category: 'Emergency Savings', amount: 0 },
+  { id: 'nps_tier1', name: 'nps', fullName: 'NPS Tier 1', group: 'savings', icon: '🏛️', category: 'NPS Tier 1', amount: 0 },
+  { id: 'ppf_balance', name: 'ppf', fullName: 'PPF Balance', group: 'savings', icon: '🏦', category: 'PPF Balance', amount: 0 },
+  { id: 'mf_parag_parikh', name: 'Parag pariek', fullName: 'Parag Parikh Flexi Cap', group: 'mutual', icon: '📈', category: 'Flexi Cap Fund', amount: 0 },
+  { id: 'mf_icici_n50', name: 'icici nifty 50 fund', fullName: 'ICICI Nifty 50 Index', group: 'mutual', icon: '📊', category: 'Index Fund', amount: 0 },
+  { id: 'mf_bandhan_small', name: 'bandan small cap', fullName: 'Bandhan Small Cap', group: 'mutual', icon: '🚀', category: 'Small Cap Fund', amount: 0 },
+  { id: 'epf_balance', name: 'epf balance', fullName: 'EPF Balance', group: 'savings', icon: '💼', category: 'EPF Balance', amount: 0 },
 
   // Wealthflow Stocks & ETFs Holdings
   { id: 'st_tata_cap', name: 'TATA Capital', fullName: 'TATA Capital', group: 'stocks', icon: '🏢', category: 'Financial Services (NBFC)', amount: 0 },
@@ -2160,16 +2160,7 @@ function initMonthlyUpdateSidebar() {
   let activeFilter = 'all';
   let sips = JSON.parse(JSON.stringify(DEFAULT_MONTHLY_SIPS));
   try {
-    const saved = localStorage.getItem('leo_monthly_sips_template');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        sips.forEach(s => {
-          const match = parsed.find(p => p.id === s.id);
-          if (match && typeof match.amount === 'number') s.amount = match.amount;
-        });
-      }
-    }
+    localStorage.removeItem('leo_monthly_sips_template');
   } catch (e) {}
 
   // Populate month options
@@ -2267,8 +2258,7 @@ function initMonthlyUpdateSidebar() {
       .map(item => `${item.amount} to ${item.name}`);
 
     const yearSuffix = chosenYear ? ` ${chosenYear}` : '';
-    const promptText = `For ${chosenMonth}${yearSuffix} - ${parts.join(', ')}`;
-    outputTextarea.value = promptText;
+    outputTextarea.value = parts.length > 0 ? `For ${chosenMonth}${yearSuffix} - ${parts.join(', ')}` : '';
 
     const total = sips.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     const totalEl = document.getElementById('sidebarTotalAmount');
@@ -2278,6 +2268,8 @@ function initMonthlyUpdateSidebar() {
   monthSelect.addEventListener('change', updateGeneratedPrompt);
 
   openBtn.addEventListener('click', () => {
+    sips.forEach(s => { s.amount = 0; });
+    renderInputs();
     overlay.classList.add('active');
     lucide.createIcons();
   });
