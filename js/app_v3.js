@@ -1842,8 +1842,8 @@ function tryFastInvestQuery(userText, investState) {
   const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '');
   if (!investState || !investState.records) return null;
 
-  // If user is adding/updating amounts (e.g. "10000 to Goals", "for october - 10000 to..."), never treat as query
-  if (/\b\d{3,}\b|\b\d+k\b|₹\d+/i.test(clean) && /\b(to|in|into|for|balance|add|invest|put|set|update|goals?|emergency|gold|ppf|epf|nps)\b/i.test(clean)) {
+  // If user is adding/updating amounts (e.g. "50 for gold", "10000 to Goals"), never treat as query
+  if (pendingClarification || (/\b\d+\b|\b\d+k\b|₹\d+/i.test(clean) && /\b(to|in|into|for|balance|add|invest|put|set|update|goals?|emergency|gold|silver|ppf|epf|nps)\b/i.test(clean))) {
     return null;
   }
   
