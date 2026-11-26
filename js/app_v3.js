@@ -679,12 +679,14 @@ const groqTools = [
     type: "function",
     function: {
       name: "delete_expense",
-      description: "Delete/undo an expense entry by ID, or delete the most recent expense if ID is omitted.",
+      description: "Delete/undo an expense entry by ID, amount, description, or date. Deletes the most recent matching expense.",
       parameters: {
         type: "object",
         properties: {
-          id: { type: "string", description: "Optional expense ID to delete. If omitted, deletes the most recent expense." },
-          date: { type: "string", description: "Optional date YYYY-MM-DD to match most recent expense on that date." }
+          id: { type: "string", description: "Optional expense ID to delete." },
+          amount: { type: "number", description: "Optional amount in Rupees to match (e.g. 50)." },
+          description: { type: "string", description: "Optional description keyword to match (e.g. gold, tea)." },
+          date: { type: "string", description: "Optional date YYYY-MM-DD (or 'today')." }
         }
       }
     }
@@ -925,13 +927,28 @@ async function executeToolCall(call) {
     else if (call.name === "delete_expense") {
       await fetchExpenseCloudState(true);
       const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
+      const newestFirst = [...list].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       let target = null;
       if (call.args.id) {
-        target = list.find(e => e.id === call.args.id);
-      } else if (call.args.date) {
-        target = list.find(e => normalizeExpenseDateStr(e.date) === call.args.date);
+        target = newestFirst.find(e => e.id === call.args.id);
       } else {
-        target = list[0];
+        const targetDate = call.args.date === 'today' ? getLocalDateISO() : call.args.date;
+        target = newestFirst.find(e => {
+          if (targetDate && normalizeExpenseDateStr(e.date) !== targetDate) return false;
+          if (call.args.amount !== undefined && Number(e.amount) !== Number(call.args.amount)) return false;
+          if (call.args.description && !String(e.description || '').toLowerCase().includes(String(call.args.description).toLowerCase())) return false;
+          return true;
+        });
+        // If description didn't match (e.g. user said "gold" when saved as "GOLDIETF"), retry matching by date + amount alone
+        if (!target && call.args.amount !== undefined) {
+          target = newestFirst.find(e => {
+            if (targetDate && normalizeExpenseDateStr(e.date) !== targetDate) return false;
+            return Number(e.amount) === Number(call.args.amount);
+          });
+        }
+        if (!target && !call.args.amount && !call.args.description) {
+          target = newestFirst[0];
+        }
       }
       if (!target) {
         return { status: "error", message: "No matching expense found to delete." };
@@ -1541,7 +1558,8 @@ function tryFastExpenseIntent(userText) {
   // 1. Expense Queries (e.g. "today expenses", "this month expenses", "how much expense i did in this month", "my expenses")
   const isInvest = /\b(invest|invested|networth|stocks?|etfs?|mutual|portfolio|sips?)\b/i.test(clean);
   const isExplicitLog = /\b(spent|spend|paid|pay)\s*₹?\s*\d+/i.test(clean) || /^\d+\s*(rs|rupees|spent|for)?$/i.test(clean);
-  const isExpQuery = !isInvest && !isExplicitLog &&
+  const isModifyCmd = /\b(delete|del|remove|undo|edit|update|change|fix|modify|replace|erase)\b/i.test(clean);
+  const isExpQuery = !isInvest && !isExplicitLog && !isModifyCmd &&
     /\b(expenses?|spending|spent\s*today|spend\s*today|total\s*spent|how\s*much.*spent|my\s*expenses?|show\s*expenses?|list\s*expenses?|what.*spent|daily\s*expenses?|monthly\s*expenses?)\b/i.test(clean);
 
   if (isExpQuery) {
