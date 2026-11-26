@@ -927,7 +927,7 @@ async function executeToolCall(call) {
     else if (call.name === "delete_expense") {
       await fetchExpenseCloudState(true);
       const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
-      const newestFirst = [...list].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      const newestFirst = sortExpensesNewestFirst(list);
       let target = null;
       if (call.args.id) {
         target = newestFirst.find(e => e.id === call.args.id);
@@ -951,7 +951,7 @@ async function executeToolCall(call) {
         }
       }
       if (!target) {
-        return { status: "error", message: "No matching expense found to delete." };
+        return { status: "error", message: `No matching expense${call.args.amount != null ? ` of ₹${call.args.amount}` : ''} found to delete.` };
       }
       deleteExpenseDirectly(target.id);
       showToast(`Deleted ₹${target.amount}`);
@@ -959,7 +959,7 @@ async function executeToolCall(call) {
     }
     else if (call.name === "update_expense") {
       await fetchExpenseCloudState(true);
-      const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
+      const list = sortExpensesNewestFirst((cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses());
       const target = call.args.id ? list.find(e => e.id === call.args.id) : list[0];
       if (!target) {
         return { status: "error", message: "No matching expense found to update." };
@@ -1447,6 +1447,17 @@ function updateExpenseDirectly(expense) {
   }
 }
 
+function sortExpensesNewestFirst(list) {
+  return [...list].sort((a, b) => {
+    const da = normalizeExpenseDateStr(a.date);
+    const db = normalizeExpenseDateStr(b.date);
+    if (db !== da) return db.localeCompare(da);
+    const ta = Number((String(a.id || '').match(/exp_(\d+)/) || [])[1] || 0);
+    const tb = Number((String(b.id || '').match(/exp_(\d+)/) || [])[1] || 0);
+    return tb - ta;
+  });
+}
+
 function getIndexedExpensesSummary(dateTarget, monthTarget) {
   const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
   const todayISO = dateTarget || getLocalDateISO();
@@ -1520,7 +1531,7 @@ function tryFastExpenseIntent(userText) {
         reply: `↩️ **Undid Expense:** Removed **₹${Number(exp.amount).toLocaleString('en-IN')}** (${exp.description}) from ${exp.date}. *Synced to Google Sheet!*`
       };
     }
-    const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
+    const list = sortExpensesNewestFirst((cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses());
     if (/expense/.test(clean) && list.length > 0) {
       const exp = list[0];
       deleteExpenseDirectly(exp.id);
@@ -1545,6 +1556,33 @@ function tryFastExpenseIntent(userText) {
     return {
       isQuery: true,
       reply: `Nothing recent to undo in this session. Try *"delete last expense"* if you want to remove the latest entry from your sheet.`
+    };
+  }
+
+  // 0b. Fast Delete Specific Amount (e.g. "remove 113", "delete 50", "remove 50 for gold from today expense")
+  const delAmountMatch = clean.match(/\b(?:remove|delete|del|erase)\b.*?(?:₹|rs\.?\s*)?\b(\d+(?:\.\d+)?)\b/i);
+  if (delAmountMatch && !/\b(invest|portfolio|networth|stocks?|etfs?|mutual\s*funds?|epf|ppf|nps|goals?|habit)\b/i.test(clean)) {
+    const targetAmt = Number(delAmountMatch[1]);
+    const list = sortExpensesNewestFirst((cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses());
+    const hasExplicitDate = /\b(today|yesterday|day before yesterday|20\d\d-\d\d-\d\d)\b/i.test(clean);
+    const targetDate = hasExplicitDate ? extractTargetDate(clean).date : null;
+
+    const match = list.find(e => {
+      if (targetDate && normalizeExpenseDateStr(e.date) !== targetDate) return false;
+      return Number(e.amount) === targetAmt;
+    });
+
+    if (!match) {
+      return {
+        isQuery: true,
+        reply: `⚠️ No expense of **₹${targetAmt.toLocaleString('en-IN')}**${targetDate ? ` on ${targetDate}` : ''} was found to delete.`
+      };
+    }
+    deleteExpenseDirectly(match.id);
+    showToast(`Deleted ₹${match.amount}`);
+    return {
+      isQuery: true,
+      reply: `🗑️ **Deleted Expense:** ₹${Number(match.amount).toLocaleString('en-IN')} for **${match.description}** (${normalizeExpenseDateStr(match.date)}). *Synced to Google Sheet!*`
     };
   }
 
