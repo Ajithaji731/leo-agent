@@ -923,6 +923,11 @@ Daily Expenses:
 - When user asks about their spending or expenses (e.g. "how much did I spend today?", "what are my expenses today?"):
   Call 'get_expenses'. ALWAYS display amounts in Indian Rupees (₹) and NEVER in $. Show itemized list if available.
 
+Ambiguity Handling (Expense vs Investment Portfolio):
+- If the user types an ambiguous amount + item without a clear spend verb (spent/paid/bought) and without a clear investment verb (invest/add/to/portfolio) — for example "50 for gold" or "500 silver":
+  DO NOT call 'add_expense' or 'manage_investments' yet. Ask clearly: "Should I log **₹<amount> for <item>** as a **Daily Expense** or an **Investment Portfolio** update?"
+- When the user replies ("expense" or "portfolio" / "investment"), immediately call 'add_expense' or 'manage_investments' using the amount and item from the previous message.
+
 API Key Info:
 - Your Groq API key is active and valid until August 20, 2027. If asked, confirm this accurately.
 
@@ -1365,6 +1370,13 @@ function extractTargetMonthForExpense(clean) {
 
 function tryFastExpenseIntent(userText) {
   const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '').trim();
+
+  // If Leo just asked to clarify Expense vs Portfolio, let the LLM handle short replies like "expense"
+  const lastAiMsg = [...chatHistory].reverse().find(m => m.role === 'model');
+  const awaitingClarification = lastAiMsg && /expense.*portfolio|portfolio.*expense/i.test(lastAiMsg.content || '');
+  if (awaitingClarification && /^(?:an?\s*)?(daily\s*)?(expense|expenses|portfolio|investment|invest|wealthflow)$/i.test(clean)) {
+    return null;
+  }
 
   // 1. Expense Queries (e.g. "today expenses", "this month expenses", "how much expense i did in this month", "my expenses")
   const isInvest = /\b(invest|invested|networth|stocks?|etfs?|mutual|portfolio|sips?)\b/i.test(clean);
@@ -1876,6 +1888,15 @@ function tryFastInvestLog(userText, investState) {
   }
 
   if (items.length > 0) {
+    const hasExplicitInvestSignal =
+      Boolean(headerMatch) ||
+      items.length > 1 ||
+      /\b(add|added|invest|invested|put|set|replace|update|updating|deposit|deposited|save|saved|log|logged|to|into|sip|sips|portfolio|wealthflow|etf|etfs|mutual\s*fund|epf|ppf|nps|goals?|digi\s*gold|goldietf|tatsilv|metalietf)\b/i.test(clean);
+
+    if (!hasExplicitInvestSignal) {
+      return null;
+    }
+
     return {
       month: targetMonth,
       items: items
