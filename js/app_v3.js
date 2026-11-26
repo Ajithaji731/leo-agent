@@ -7,6 +7,8 @@ const SECURE_ID = '2108'; // Hardcoded as requested
 
 // Global State
 let chatHistory = [];
+let lastSessionAction = null;
+let pendingClarification = null;
 
 // DOM Elements
 const chatContainer = document.getElementById('chatContainer');
@@ -672,6 +674,38 @@ const groqTools = [
         }
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_expense",
+      description: "Delete/undo an expense entry by ID, or delete the most recent expense if ID is omitted.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Optional expense ID to delete. If omitted, deletes the most recent expense." },
+          date: { type: "string", description: "Optional date YYYY-MM-DD to match most recent expense on that date." }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_expense",
+      description: "Update/edit an existing expense entry (e.g., fix amount or description). Defaults to the most recent expense if ID is omitted.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Optional expense ID. If omitted, updates the most recent expense." },
+          amount: { type: "number", description: "Updated amount in Rupees" },
+          description: { type: "string", description: "Updated description" },
+          category: { type: "string", description: "Updated category" },
+          payment_mode: { type: "string", description: "Updated payment mode (UPI, Cash, Card)" },
+          date: { type: "string", description: "Updated date YYYY-MM-DD" }
+        }
+      }
+    }
   }
 ];
 
@@ -888,6 +922,45 @@ async function executeToolCall(call) {
       const summary = getIndexedExpensesSummary(dateTarget, call.args.month);
       return JSON.stringify(summary);
     }
+    else if (call.name === "delete_expense") {
+      await fetchExpenseCloudState(true);
+      const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
+      let target = null;
+      if (call.args.id) {
+        target = list.find(e => e.id === call.args.id);
+      } else if (call.args.date) {
+        target = list.find(e => normalizeExpenseDateStr(e.date) === call.args.date);
+      } else {
+        target = list[0];
+      }
+      if (!target) {
+        return { status: "error", message: "No matching expense found to delete." };
+      }
+      deleteExpenseDirectly(target.id);
+      showToast(`Deleted ₹${target.amount}`);
+      return { status: "success", result: `🗑️ **Deleted Expense:** ₹${target.amount} for **${target.description}** (${target.date}).` };
+    }
+    else if (call.name === "update_expense") {
+      await fetchExpenseCloudState(true);
+      const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
+      const target = call.args.id ? list.find(e => e.id === call.args.id) : list[0];
+      if (!target) {
+        return { status: "error", message: "No matching expense found to update." };
+      }
+      const newDate = call.args.date || normalizeExpenseDateStr(target.date);
+      const updated = {
+        ...target,
+        amount: call.args.amount !== undefined ? Number(call.args.amount) : Number(target.amount),
+        description: call.args.description || target.description,
+        category: call.args.category || target.category,
+        paymentMode: call.args.payment_mode || target.paymentMode || "UPI",
+        date: newDate,
+        month: newDate.substring(0, 7)
+      };
+      updateExpenseDirectly(updated);
+      showToast(`Updated ₹${updated.amount}`);
+      return { status: "success", result: `✏️ **Updated Expense:** ₹${updated.amount} for **${updated.description}** (${updated.date}).` };
+    }
   } catch (e) {
     showToast("Sync Failed: " + e.toString()); return { status: "error", message: e.toString() };
   }
@@ -922,6 +995,8 @@ Daily Expenses:
   Call 'add_expense' with amount, description, category, and date.
 - When user asks about their spending or expenses (e.g. "how much did I spend today?", "what are my expenses today?"):
   Call 'get_expenses'. ALWAYS display amounts in Indian Rupees (₹) and NEVER in $. Show itemized list if available.
+- When user wants to delete, undo, or edit/fix an expense (e.g. "delete my last expense", "change that 500 to 50"):
+  Call 'delete_expense' or 'update_expense'.
 
 Ambiguity Handling (Expense vs Investment Portfolio):
 - If the user types an ambiguous amount + item without a clear spend verb (spent/paid/bought) and without a clear investment verb (invest/add/to/portfolio) — for example "50 for gold" or "500 silver":
@@ -1032,6 +1107,12 @@ Always keep responses short, clear, friendly, and confirm the exact actions take
             responses.push(toolResult.result);
           } else {
             responses.push(`Logged expense successfully! 💸`);
+          }
+        } else if (call.name === "delete_expense" || call.name === "update_expense") {
+          if (toolResult && toolResult.status === "error") {
+            responses.push(`⚠️ ${toolResult.message || 'Could not modify expense.'}`);
+          } else if (toolResult && toolResult.result) {
+            responses.push(toolResult.result);
           }
         }
       }
@@ -1295,6 +1376,7 @@ function logExpenseDirectly(expense) {
     const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
     list.unshift(expense);
     cachedExpensesList = list;
+    lastSessionAction = { type: 'expense', expense };
     localStorage.setItem("expense_tracker_data", JSON.stringify(list));
     
     // Background sync to Google Sheet
@@ -1306,6 +1388,45 @@ function logExpenseDirectly(expense) {
     }).catch(err => console.warn("Expense GAS sync failed:", err));
   } catch (e) {
     console.error("Failed to log expense directly:", e);
+  }
+}
+
+function deleteExpenseDirectly(id) {
+  try {
+    const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
+    const filtered = list.filter(e => e.id !== id);
+    cachedExpensesList = filtered;
+    localStorage.setItem("expense_tracker_data", JSON.stringify(filtered));
+
+    fetch(EXPENSE_GAS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "deleteExpense", id: id }),
+      keepalive: true
+    }).catch(err => console.warn("Expense delete GAS sync failed:", err));
+  } catch (e) {
+    console.error("Failed to delete expense directly:", e);
+  }
+}
+
+function updateExpenseDirectly(expense) {
+  try {
+    const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
+    const idx = list.findIndex(e => e.id === expense.id);
+    if (idx !== -1) {
+      list[idx] = expense;
+      cachedExpensesList = list;
+      localStorage.setItem("expense_tracker_data", JSON.stringify(list));
+    }
+
+    fetch(EXPENSE_GAS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "updateExpense", expense: expense }),
+      keepalive: true
+    }).catch(err => console.warn("Expense update GAS sync failed:", err));
+  } catch (e) {
+    console.error("Failed to update expense directly:", e);
   }
 }
 
@@ -1370,6 +1491,45 @@ function extractTargetMonthForExpense(clean) {
 
 function tryFastExpenseIntent(userText) {
   const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '').trim();
+
+  // 0. Fast Undo / Delete Last Expense
+  if (/^(undo|undo\s+last|undo\s+(that|expense)|delete\s+last\s+expense|remove\s+last\s+expense|revert\s+last)$/i.test(clean)) {
+    if (lastSessionAction && lastSessionAction.type === 'expense' && lastSessionAction.expense) {
+      const exp = lastSessionAction.expense;
+      deleteExpenseDirectly(exp.id);
+      lastSessionAction = null;
+      return {
+        isQuery: true,
+        reply: `↩️ **Undid Expense:** Removed **₹${Number(exp.amount).toLocaleString('en-IN')}** (${exp.description}) from ${exp.date}. *Synced to Google Sheet!*`
+      };
+    }
+    const list = (cachedExpensesList && cachedExpensesList.length > 0) ? cachedExpensesList : getStoredExpenses();
+    if (/expense/.test(clean) && list.length > 0) {
+      const exp = list[0];
+      deleteExpenseDirectly(exp.id);
+      return {
+        isQuery: true,
+        reply: `🗑️ **Deleted Last Expense:** Removed **₹${Number(exp.amount).toLocaleString('en-IN')}** (${exp.description}) from ${normalizeExpenseDateStr(exp.date)}. *Synced to Google Sheet!*`
+      };
+    }
+    if (lastSessionAction && lastSessionAction.type === 'habit') {
+      const prev = lastSessionAction;
+      const undoAct = prev.action === 'check' ? 'uncheck' : 'check';
+      executeToolCall({
+        name: 'update_habit',
+        args: { habit_ids: prev.habit_ids, action: undoAct, date: prev.date }
+      });
+      lastSessionAction = null;
+      return {
+        isQuery: true,
+        reply: `↩️ **Undid Habit Update:** ${undoAct === 'uncheck' ? 'Unmarked' : 'Marked'} **${prev.habit_ids.join(', ')}** for ${prev.date}.`
+      };
+    }
+    return {
+      isQuery: true,
+      reply: `Nothing recent to undo in this session. Try *"delete last expense"* if you want to remove the latest entry from your sheet.`
+    };
+  }
 
   // If Leo just asked to clarify Expense vs Portfolio, let the LLM handle short replies like "expense"
   const lastAiMsg = [...chatHistory].reverse().find(m => m.role === 'model');
@@ -1894,6 +2054,15 @@ function tryFastInvestLog(userText, investState) {
       /\b(add|added|invest|invested|put|set|replace|update|updating|deposit|deposited|save|saved|log|logged|to|into|sip|sips|portfolio|wealthflow|etf|etfs|mutual\s*fund|epf|ppf|nps|goals?|digi\s*gold|goldietf|tatsilv|metalietf)\b/i.test(clean);
 
     if (!hasExplicitInvestSignal) {
+      if (items.length === 1) {
+        pendingClarification = {
+          amount: items[0].amount,
+          assetId: items[0].asset_id,
+          assetName: items[0].name,
+          description: items[0].name,
+          month: targetMonth
+        };
+      }
       return null;
     }
 
@@ -2020,6 +2189,12 @@ chatForm.addEventListener('submit', async (e) => {
           date: habitFastMatch.date
         }
       });
+      lastSessionAction = {
+        type: 'habit',
+        habit_ids: habitFastMatch.habit_ids,
+        action: habitFastMatch.action,
+        date: habitFastMatch.date
+      };
       const names = habitFastMatch.habit_ids.join(', ');
       const reply = habitFastMatch.action === 'uncheck'
         ? `Unmarked **${names}** for ${habitFastMatch.date}. ⏪`
@@ -2078,8 +2253,78 @@ chatForm.addEventListener('submit', async (e) => {
   showTypingIndicator();
   const aiResponse = await sendToGroq(text);
   hideTypingIndicator();
-  appendMessage('ai', aiResponse);
+  const aiMsgEl = appendMessage('ai', aiResponse);
   chatHistory.push({ role: 'model', content: aiResponse });
+
+  // Attach 1-tap clarification buttons if Leo asked Expense vs. Portfolio
+  if (pendingClarification && /expense.*portfolio|portfolio.*expense/i.test(aiResponse || '')) {
+    const ctx = pendingClarification;
+    pendingClarification = null;
+    const contentEl = aiMsgEl.querySelector('.message-content');
+    if (contentEl) {
+      const btnWrap = document.createElement('div');
+      btnWrap.className = 'clarify-actions';
+
+      const expBtn = document.createElement('button');
+      expBtn.type = 'button';
+      expBtn.className = 'clarify-btn';
+      expBtn.textContent = `💸 Daily Expense (₹${ctx.amount})`;
+
+      const portBtn = document.createElement('button');
+      portBtn.type = 'button';
+      portBtn.className = 'clarify-btn portfolio-btn';
+      portBtn.textContent = `📈 Portfolio (${ctx.assetName})`;
+
+      const disableAll = () => {
+        expBtn.disabled = true;
+        portBtn.disabled = true;
+      };
+
+      expBtn.addEventListener('click', () => {
+        disableAll();
+        const todayISO = getLocalDateISO();
+        const expObj = {
+          id: "exp_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+          date: todayISO,
+          time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          month: todayISO.substring(0, 7),
+          amount: Number(ctx.amount),
+          description: ctx.description,
+          category: inferExpenseCategory(ctx.description),
+          paymentMode: "UPI",
+          source: "AI Agent",
+          createdAt: new Date().toISOString()
+        };
+        logExpenseDirectly(expObj);
+        const daySummary = getIndexedExpensesSummary(todayISO);
+        const reply = `💸 **Logged ₹${expObj.amount} for ${expObj.description} today!**\n\n📅 **Day Total:** ₹${daySummary.total.toLocaleString('en-IN')}\n*Synced to Google Sheet ☁️*`;
+        appendMessage('ai', reply);
+        chatHistory.push({ role: 'model', content: reply });
+        showToast(`Logged ₹${expObj.amount}`);
+      });
+
+      portBtn.addEventListener('click', async () => {
+        disableAll();
+        await executeToolCall({
+          name: 'manage_investments',
+          args: {
+            month: ctx.month,
+            investments: [{ asset_id: ctx.assetId, amount: Number(ctx.amount), mode: 'add' }]
+          }
+        });
+        const reply = `📈 **Logged Investment for ${ctx.month}:**\n\n- **${ctx.assetName}**: +₹${Number(ctx.amount).toLocaleString('en-IN')}\n\n*Saved to your Wealthflow portfolio!*`;
+        appendMessage('ai', reply);
+        chatHistory.push({ role: 'model', content: reply });
+      });
+
+      btnWrap.appendChild(expBtn);
+      btnWrap.appendChild(portBtn);
+      contentEl.appendChild(btnWrap);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+  } else {
+    pendingClarification = null;
+  }
 });
 
 
@@ -2162,6 +2407,50 @@ function initMonthlyUpdateSidebar() {
   try {
     localStorage.removeItem('leo_monthly_sips_template');
   } catch (e) {}
+
+  function syncAssetsFromCloud() {
+    const cloudAssets = (cachedInvestState && Array.isArray(cachedInvestState.assets) && cachedInvestState.assets.length > 0)
+      ? cachedInvestState.assets
+      : DEFAULT_INVEST_ASSETS;
+
+    const merged = JSON.parse(JSON.stringify(DEFAULT_MONTHLY_SIPS));
+    cloudAssets.forEach(ca => {
+      if (!ca || !ca.id) return;
+      const existing = merged.find(m => m.id === ca.id);
+      if (existing) {
+        existing.fullName = ca.name || existing.fullName;
+        if (ca.sector) existing.category = ca.sector;
+      } else {
+        const catLow = (ca.category || '').toLowerCase();
+        let group = 'savings';
+        let icon = '💼';
+        if (catLow.includes('stock') || catLow.includes('etf')) {
+          group = 'stocks';
+          icon = '🏢';
+        } else if (catLow.includes('mutual')) {
+          group = 'mutual';
+          icon = '📈';
+        } else if (catLow.includes('gold')) {
+          icon = '🪙';
+        } else if (catLow.includes('goal')) {
+          icon = '🎯';
+        } else if (catLow.includes('emergency')) {
+          icon = '🛡️';
+        }
+        merged.push({
+          id: ca.id,
+          name: ca.name,
+          fullName: ca.name,
+          group: group,
+          icon: icon,
+          category: ca.sector || ca.category || 'Wealthflow Asset',
+          amount: 0
+        });
+      }
+    });
+    merged.forEach(item => { item.amount = 0; });
+    sips = merged;
+  }
 
   // Populate month options
   const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -2268,7 +2557,7 @@ function initMonthlyUpdateSidebar() {
   monthSelect.addEventListener('change', updateGeneratedPrompt);
 
   openBtn.addEventListener('click', () => {
-    sips.forEach(s => { s.amount = 0; });
+    syncAssetsFromCloud();
     renderInputs();
     overlay.classList.add('active');
     lucide.createIcons();
