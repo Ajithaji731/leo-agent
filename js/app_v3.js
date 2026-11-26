@@ -653,9 +653,9 @@ const groqTools = [
         properties: {
           amount: { type: "number", description: "Expense amount in Rupees (e.g. 20, 50, 150)" },
           description: { type: "string", description: "Short description of expense (e.g. Tea, Auto, Lunch)" },
-          category: { type: "string", description: "Expense category (Food & Drinks, Transportation, Groceries, Bills & Utilities, Shopping, Other)" },
-          payment_mode: { type: "string", description: "Payment mode (UPI, Cash, Card)" },
-          date: { type: "string", description: "Target date in YYYY-MM-DD format (defaults to today)" }
+          category: { anyOf: [{ type: "string" }, { type: "null" }], description: "Expense category (Food & Drinks, Transportation, Groceries, Bills & Utilities, Shopping, Other)" },
+          payment_mode: { anyOf: [{ type: "string" }, { type: "null" }], description: "Payment mode (UPI, Cash, Card)" },
+          date: { anyOf: [{ type: "string" }, { type: "null" }], description: "Target date in YYYY-MM-DD format (defaults to today)" }
         },
         required: ["amount", "description"]
       }
@@ -669,8 +669,8 @@ const groqTools = [
       parameters: {
         type: "object",
         properties: {
-          date: { type: "string", description: "Date YYYY-MM-DD or 'today' or 'yesterday'" },
-          month: { type: "string", description: "Month in YYYY-MM format" }
+          date: { anyOf: [{ type: "string" }, { type: "null" }], description: "Date YYYY-MM-DD or 'today' or 'yesterday'" },
+          month: { anyOf: [{ type: "string" }, { type: "null" }], description: "Month in YYYY-MM format" }
         }
       }
     }
@@ -683,10 +683,10 @@ const groqTools = [
       parameters: {
         type: "object",
         properties: {
-          id: { type: "string", description: "Optional expense ID to delete." },
-          amount: { type: "number", description: "Optional amount in Rupees to match (e.g. 50)." },
-          description: { type: "string", description: "Optional description keyword to match (e.g. gold, tea)." },
-          date: { type: "string", description: "Optional date YYYY-MM-DD (or 'today')." }
+          id: { anyOf: [{ type: "string" }, { type: "null" }], description: "Optional expense ID to delete." },
+          amount: { anyOf: [{ type: "number" }, { type: "null" }], description: "Optional amount in Rupees to match (e.g. 50, 113)." },
+          description: { anyOf: [{ type: "string" }, { type: "null" }], description: "Optional description keyword to match (e.g. gold, tea)." },
+          date: { anyOf: [{ type: "string" }, { type: "null" }], description: "Optional date YYYY-MM-DD (or 'today')." }
         }
       }
     }
@@ -699,12 +699,12 @@ const groqTools = [
       parameters: {
         type: "object",
         properties: {
-          id: { type: "string", description: "Optional expense ID. If omitted, updates the most recent expense." },
-          amount: { type: "number", description: "Updated amount in Rupees" },
-          description: { type: "string", description: "Updated description" },
-          category: { type: "string", description: "Updated category" },
-          payment_mode: { type: "string", description: "Updated payment mode (UPI, Cash, Card)" },
-          date: { type: "string", description: "Updated date YYYY-MM-DD" }
+          id: { anyOf: [{ type: "string" }, { type: "null" }], description: "Optional expense ID. If omitted, updates the most recent expense." },
+          amount: { anyOf: [{ type: "number" }, { type: "null" }], description: "Updated amount in Rupees" },
+          description: { anyOf: [{ type: "string" }, { type: "null" }], description: "Updated description" },
+          category: { anyOf: [{ type: "string" }, { type: "null" }], description: "Updated category" },
+          payment_mode: { anyOf: [{ type: "string" }, { type: "null" }], description: "Updated payment mode (UPI, Cash, Card)" },
+          date: { anyOf: [{ type: "string" }, { type: "null" }], description: "Updated date YYYY-MM-DD" }
         }
       }
     }
@@ -935,18 +935,18 @@ async function executeToolCall(call) {
         const targetDate = call.args.date === 'today' ? getLocalDateISO() : call.args.date;
         target = newestFirst.find(e => {
           if (targetDate && normalizeExpenseDateStr(e.date) !== targetDate) return false;
-          if (call.args.amount !== undefined && Number(e.amount) !== Number(call.args.amount)) return false;
+          if (call.args.amount != null && Number(e.amount) !== Number(call.args.amount)) return false;
           if (call.args.description && !String(e.description || '').toLowerCase().includes(String(call.args.description).toLowerCase())) return false;
           return true;
         });
         // If description didn't match (e.g. user said "gold" when saved as "GOLDIETF"), retry matching by date + amount alone
-        if (!target && call.args.amount !== undefined) {
+        if (!target && call.args.amount != null) {
           target = newestFirst.find(e => {
             if (targetDate && normalizeExpenseDateStr(e.date) !== targetDate) return false;
             return Number(e.amount) === Number(call.args.amount);
           });
         }
-        if (!target && !call.args.amount && !call.args.description) {
+        if (!target && call.args.amount == null && !call.args.description) {
           target = newestFirst[0];
         }
       }
@@ -967,7 +967,7 @@ async function executeToolCall(call) {
       const newDate = call.args.date || normalizeExpenseDateStr(target.date);
       const updated = {
         ...target,
-        amount: call.args.amount !== undefined ? Number(call.args.amount) : Number(target.amount),
+        amount: call.args.amount != null ? Number(call.args.amount) : Number(target.amount),
         description: call.args.description || target.description,
         category: call.args.category || target.category,
         paymentMode: call.args.payment_mode || target.paymentMode || "UPI",
