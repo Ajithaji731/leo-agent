@@ -1260,20 +1260,20 @@ function extractTargetDate(text) {
   const match1 = clean.match(datePattern1);
   const match2 = clean.match(datePattern2);
 
-  if (match1) {
-    const day = match1[1].padStart(2, '0');
-    const mStr = match1[2].toLowerCase().replace('sept', 'sep');
-    const month = monthNames[mStr] || '01';
-    const year = match1[3] || today.getFullYear().toString();
-    const targetISO = `${year}-${month}-${day}`;
-    return { date: targetISO, label: `${match1[1]} ${match1[2]}`, isToday: targetISO === getLocalDateISO() };
-  } else if (match2) {
+  if (match2 && parseInt(match2[2], 10) >= 1 && parseInt(match2[2], 10) <= 31) {
     const day = match2[2].padStart(2, '0');
     const mStr = match2[1].toLowerCase().replace('sept', 'sep');
     const month = monthNames[mStr] || '01';
     const year = match2[3] || today.getFullYear().toString();
     const targetISO = `${year}-${month}-${day}`;
     return { date: targetISO, label: `${match2[1]} ${match2[2]}`, isToday: targetISO === getLocalDateISO() };
+  } else if (match1 && parseInt(match1[1], 10) >= 1 && parseInt(match1[1], 10) <= 31) {
+    const day = match1[1].padStart(2, '0');
+    const mStr = match1[2].toLowerCase().replace('sept', 'sep');
+    const month = monthNames[mStr] || '01';
+    const year = match1[3] || today.getFullYear().toString();
+    const targetISO = `${year}-${month}-${day}`;
+    return { date: targetISO, label: `${match1[1]} ${match1[2]}`, isToday: targetISO === getLocalDateISO() };
   }
 
   return { date: getLocalDateISO(today), label: 'today', isToday: true };
@@ -1677,7 +1677,7 @@ function tryFastExpenseIntent(userText) {
       }
 
       let customDesc = clean
-        .replace(/(?:spent|spend|paid|pay|for|in|morning|evening|night|today|yesterday|via|rupees|rs\.?|₹|bucks|now)\b/gi, '')
+        .replace(/\b(?:spent|spend|paid|pay|for|in|on|at|morning|evening|night|today|yesterday|via|rupees|rs\.?|₹|bucks|now|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b/gi, '')
         .replace(/\b\d+(\.\d+)?\b/g, '')
         .trim();
       if (customDesc.length >= 2) {
