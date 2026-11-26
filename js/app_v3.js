@@ -1324,16 +1324,90 @@ function getIndexedExpensesSummary(dateTarget, monthTarget) {
   };
 }
 
+function extractTargetMonthForExpense(clean) {
+  const now = new Date();
+  if (/\b(this\s*month|current\s*month|monthly|whole\s*month|full\s*month)\b/i.test(clean)) {
+    return { month: getLocalDateISO(now).substring(0, 7), label: 'This Month' };
+  }
+  if (/\b(last\s*month|previous\s*month|prev\s*month)\b/i.test(clean)) {
+    const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return { month: getLocalDateISO(d).substring(0, 7), label: 'Last Month' };
+  }
+  const yyyymmMatch = clean.match(/\b(20\d\d-\d\d)\b/);
+  if (yyyymmMatch) {
+    return { month: yyyymmMatch[1], label: yyyymmMatch[1] };
+  }
+
+  // Only treat a month name as a monthly query if there is NO specific day number attached (e.g. "nov 1")
+  const mList = 'jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december';
+  const hasDay = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${mList})\\b|\\b(${mList})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, 'i').test(clean);
+  if (!hasDay) {
+    const monthMatch = clean.match(new RegExp(`\\b(${mList})\\b`, 'i'));
+    if (monthMatch) {
+      const monthNames = {
+        jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+        jul: '07', aug: '08', sep: '09', sept: '09', oct: '10', nov: '11', dec: '12',
+        january: '01', february: '02', march: '03', april: '04', june: '06',
+        july: '07', august: '08', september: '09', october: '10', november: '11', december: '12'
+      };
+      const mKey = monthMatch[1].toLowerCase();
+      const yrMatch = clean.match(/\b(20\d\d)\b/);
+      const year = yrMatch ? yrMatch[1] : now.getFullYear().toString();
+      const mNum = monthNames[mKey];
+      if (mNum) {
+        const capName = mKey.charAt(0).toUpperCase() + mKey.slice(1);
+        return { month: `${year}-${mNum}`, label: `${capName} ${year}` };
+      }
+    }
+  }
+  return null;
+}
+
 function tryFastExpenseIntent(userText) {
   const clean = userText.trim().toLowerCase().replace(/[?!.,]/g, '').trim();
 
-  // 1. Expense Queries (e.g. "today expenses", "today's expenses", "how much did i spend today", "expenses today", "my expenses")
+  // 1. Expense Queries (e.g. "today expenses", "this month expenses", "how much expense i did in this month", "my expenses")
   const isInvest = /\b(invest|invested|networth|stocks?|etfs?|mutual|portfolio|sips?)\b/i.test(clean);
   const isExplicitLog = /\b(spent|spend|paid|pay)\s*₹?\s*\d+/i.test(clean) || /^\d+\s*(rs|rupees|spent|for)?$/i.test(clean);
   const isExpQuery = !isInvest && !isExplicitLog &&
-    /\b(expenses?|spending|spent\s*today|spend\s*today|total\s*spent|how\s*much.*spent|my\s*expenses?|show\s*expenses?|list\s*expenses?|what.*spent|daily\s*expenses?)\b/i.test(clean);
+    /\b(expenses?|spending|spent\s*today|spend\s*today|total\s*spent|how\s*much.*spent|my\s*expenses?|show\s*expenses?|list\s*expenses?|what.*spent|daily\s*expenses?|monthly\s*expenses?)\b/i.test(clean);
 
   if (isExpQuery) {
+    // 1a. Check if user is asking for a Month (e.g. "this month", "last month", "november")
+    const targetMonthInfo = extractTargetMonthForExpense(clean);
+    if (targetMonthInfo) {
+      const summary = getIndexedExpensesSummary(null, targetMonthInfo.month);
+      if (summary.count === 0) {
+        return {
+          isQuery: true,
+          reply: `🧾 **No expenses recorded for ${targetMonthInfo.label} (${targetMonthInfo.month}).**\n\n*You can log anytime by typing: "spent 20 for tea" or "paid 50 for auto"!* ☕`
+        };
+      }
+      // Group by date (newest first) for a clean day-by-day summary
+      const byDay = {};
+      summary.expenses.forEach(e => {
+        const d = normalizeExpenseDateStr(e.date);
+        if (!byDay[d]) byDay[d] = { total: 0, count: 0 };
+        byDay[d].total += Number(e.amount) || 0;
+        byDay[d].count += 1;
+      });
+      const todayISO = getLocalDateISO();
+      const dayLines = Object.keys(byDay).sort().reverse().map(d => {
+        const dt = new Date(d + 'T00:00:00');
+        const label = !isNaN(dt.getTime())
+          ? dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+          : d;
+        const todayTag = d === todayISO ? ' *(Today)*' : '';
+        const entryWord = byDay[d].count === 1 ? 'entry' : 'entries';
+        return `- **${label}**${todayTag}: ₹${byDay[d].total.toLocaleString('en-IN')} *(${byDay[d].count} ${entryWord})*`;
+      });
+      return {
+        isQuery: true,
+        reply: `🧾 **Expenses for ${targetMonthInfo.label} (${targetMonthInfo.month}):**\n\n${dayLines.join('\n')}\n\n**Total Spent:** ₹${summary.total.toLocaleString('en-IN')} *(${summary.count} entries)* 💸\n*Synced with your Expense Tracker!*`
+      };
+    }
+
+    // 1b. Otherwise, specific Day query (today, yesterday, nov 1, etc.)
     const targetDateInfo = extractTargetDate(clean);
     const summary = getIndexedExpensesSummary(targetDateInfo.date);
     if (summary.count === 0) {

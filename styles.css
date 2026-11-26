@@ -509,17 +509,45 @@ body.theme-alt-dark .chip-btn {
 }
 
 @media (max-width: 640px) {
-  .key-badge span {
+  header {
+    padding: 0.75rem 0.85rem;
+  }
+  .logo {
+    gap: 0.45rem;
+  }
+  .logo h1 {
+    font-size: 1.1rem;
+  }
+  .key-badge span,
+  .header-action-pill span {
     display: none;
   }
-  .key-badge {
-    padding: 6px 8px;
+  .key-badge,
+  .header-action-pill {
+    padding: 7px 9px;
+    border-radius: 10px;
   }
-  .header-action-pill span {
-    font-size: 0.72rem;
+  .header-action-pill svg,
+  .key-badge svg {
+    width: 16px;
+    height: 16px;
+  }
+  #theme-selector {
+    font-size: 0.75rem !important;
+    padding: 5px 6px !important;
+    max-width: 102px;
   }
   .header-content {
     gap: 6px;
+  }
+  .chat-container {
+    padding: 0.85rem;
+  }
+  .message {
+    max-width: 90%;
+  }
+  .input-area {
+    padding: 0.75rem 0.85rem;
   }
 }
 
